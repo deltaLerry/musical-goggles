@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>提莫快跑 - 轮回 (Heirloom Edition)</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Damage Overlay -->
+    <div id="damage-overlay"></div>
+
+    <!-- Main Menu -->
+    <div id="main-menu">
+        <h1>提莫快跑</h1>
+        <div class="subtitle">轮回 & 传承</div>
+        <div class="currency-display">轮回点数: <span id="meta-points">0</span></div>
+        
+        <div class="menu-buttons">
+            <button id="start-game-btn" class="big-btn">开始轮回</button>
+            <button id="shop-btn" class="big-btn" style="background-color: #009688;">天赋 & 传家宝</button>
+        </div>
+    </div>
+
+    <!-- Shop Screen (Hidden by default) -->
+    <div id="shop-screen" class="hidden">
+        <h2>天赋与传承</h2>
+        <div class="currency-display">点数: <span id="shop-points">0</span></div>
+        
+        <div id="heirloom-display" class="hidden">
+            <h3>传承装备 (已激活)</h3>
+            <div id="heirloom-list"></div>
+        </div>
+
+        <div id="talent-section">
+            <div class="talent-column" id="tree-strength">
+                <h2>力量 (Strength)</h2>
+                <div class="talent-list"></div>
+            </div>
+            <div class="talent-column" id="tree-agility">
+                <h2>敏捷 (Agility)</h2>
+                <div class="talent-list"></div>
+            </div>
+            <div class="talent-column" id="tree-magic">
+                <h2>魔法 (Magic)</h2>
+                <div class="talent-list"></div>
+            </div>
+        </div>
+        
+        <button id="shop-back-btn" class="big-btn" style="background-color: #757575;">返回主菜单</button>
+    </div>
+
+    <!-- Start Bonus Modal -->
+    <div id="start-bonus-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2>轮回馈赠</h2>
+            <p>获得初始技能：</p>
+            <h3 id="bonus-skill-name" style="color: #ffd700;"></h3>
+            <p id="bonus-skill-desc"></p>
+            <button id="start-bonus-confirm-btn">开始战斗</button>
+        </div>
+    </div>
+
+    <div id="game-container" class="hidden">
+        <canvas id="gameCanvas"></canvas>
+        
+        <!-- HUD -->
+        <div id="hud">
+            <div id="top-bar">
+                <div id="stats-summary">
+                    <div class="stat-box">HP: <span id="hp-display">100/100</span></div>
+                    <div class="stat-box">Stage: <span id="stage-display">1</span> - <span id="wave-display">1</span>/10</div>
+                </div>
+                <div id="controls-top">
+                    <button id="pause-btn" class="icon-btn">⏸</button>
+                    <button id="stats-btn" class="icon-btn">📊</button>
+                </div>
+            </div>
+
+            <!-- Combo & Message Display -->
+            <div id="game-messages">
+                <div id="combo-container" class="hidden">
+                    <span id="combo-count">0</span> <span class="combo-label">COMBO</span>
+                </div>
+                <div id="frenzy-msg" class="hidden">FRENZY!</div>
+            </div>
+
+            <!-- Active Skill Icons -->
+            <div id="active-skills"></div>
+
+            <!-- Boss HP Bar -->
+            <div id="boss-hp-container" class="hidden">
+                <div id="boss-name">BOSS</div>
+                <div id="boss-hp-bar-bg">
+                    <div id="boss-hp-bar"></div>
+                </div>
+            </div>
+
+            <!-- Bottom Area: Equipment & EXP -->
+            <div id="bottom-bar">
+                <div id="equipment-container"></div>
+                <div id="exp-bar-container">
+                    <div id="exp-bar"></div>
+                    <div id="exp-text">EXP</div>
+                    <div id="level-badge">1</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pause / Stats Modal -->
+        <div id="pause-modal" class="modal hidden">
+            <div class="modal-content">
+                <h2>暂停</h2>
+                <div id="full-stats-panel">
+                    <!-- Stats injected here -->
+                </div>
+                <button id="resume-btn">继续游戏</button>
+                <button id="quit-btn" style="background-color: #d32f2f;">放弃轮回</button>
+            </div>
+        </div>
+
+        <!-- Upgrade/Chest Modal -->
+        <div id="upgrade-modal" class="modal hidden">
+            <div class="modal-content">
+                <h2 id="modal-title">升级了！</h2>
+                <div id="upgrade-options"></div>
+            </div>
+        </div>
+
+        <!-- Loot Modal -->
+        <div id="loot-modal" class="modal hidden">
+            <div class="modal-content loot-content">
+                <h2 class="loot-title">BOSS 击杀!</h2>
+                <div id="loot-display"></div>
+                <button id="loot-confirm-btn">收入囊中</button>
+            </div>
+        </div>
+
+        <!-- Stage Clear Modal -->
+        <div id="stage-clear-modal" class="modal hidden">
+            <div class="modal-content">
+                <h2>关卡完成</h2>
+                <p>休整一下，准备下一关</p>
+                <div id="intermission-talents"></div>
+                <button id="next-stage-btn" class="big-btn">进入下一关</button>
+            </div>
+        </div>
+
+
+        <!-- Inventory Full Modal -->
+        <div id="inventory-modal" class="modal hidden">
+            <div class="modal-content">
+                <h2>装备已满！</h2>
+                <p>获得新装备：<span id="new-item-name" class="highlight-text"></span></p>
+                <p>选择替换或丢弃。</p>
+                <div id="inventory-grid"></div>
+                <button id="discard-btn" style="background-color: #d32f2f;">丢弃新装备</button>
+            </div>
+        </div>
+
+        <!-- Game Over -->
+        <div id="game-over-modal" class="modal hidden">
+            <div class="modal-content">
+                <h2 id="end-title">游戏结束</h2>
+                <p>存活时间: <span id="final-time"></span></p>
+                <p>获得轮回点: <span id="gained-points">0</span></p>
+                <button id="return-menu-btn">返回主菜单</button>
+            </div>
+        </div>
+    </div>
+    <script src="game.js"></script>
+</body>
+</html>
