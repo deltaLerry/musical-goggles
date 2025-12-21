@@ -5,9 +5,68 @@ body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     color: white;
     user-select: none;
+    overscroll-behavior: none;
 }
 
 .hidden { display: none !important; }
+
+/* Canvas: improve mobile touch handling */
+#gameCanvas {
+    touch-action: none;
+}
+
+/* Mobile Controls (Virtual Joystick) */
+#mobile-controls {
+    position: absolute;
+    inset: 0;
+    z-index: 45; /* above canvas, below modals (50) */
+    pointer-events: none;
+}
+
+#joystick-zone {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 55vw;
+    height: 70vh;
+    pointer-events: auto;
+    touch-action: none;
+    background: transparent;
+}
+
+#joystick {
+    position: absolute;
+    width: 140px;
+    height: 140px;
+    border-radius: 50%;
+    left: 90px;
+    bottom: 120px;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(circle, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.2) 100%);
+    border: 2px solid rgba(255,255,255,0.35);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+    backdrop-filter: blur(2px);
+    pointer-events: auto;
+    touch-action: none;
+    opacity: 0.22;
+}
+
+#joystick.active {
+    opacity: 0.9;
+}
+
+#joystick-knob {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(circle, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.12) 70%, rgba(0,0,0,0.35) 100%);
+    border: 2px solid rgba(255,255,255,0.5);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.35);
+}
 
 /* Overlays */
 #damage-overlay {

@@ -607,10 +607,20 @@ class Player {
         if (this.game.input.isKeyDown('s') || this.game.input.isKeyDown('ArrowDown')) dy += 1;
         if (this.game.input.isKeyDown('a') || this.game.input.isKeyDown('ArrowLeft')) dx -= 1;
         if (this.game.input.isKeyDown('d') || this.game.input.isKeyDown('ArrowRight')) dx += 1;
+
+        // Mobile/Analog move axis (virtual joystick)
+        const axis = this.game.input.getMoveAxis ? this.game.input.getMoveAxis() : { x: 0, y: 0 };
+        dx += axis.x || 0;
+        dy += axis.y || 0;
+
         if (dx || dy) {
-            const l = Math.sqrt(dx * dx + dy * dy);
-            this.x += (dx / l) * effectiveSpeed * dt;
-            this.y += (dy / l) * effectiveSpeed * dt;
+            const l = Math.sqrt(dx * dx + dy * dy) || 1;
+            const nx = dx / l;
+            const ny = dy / l;
+            // Analog support: small tilt => slower movement (keyboard stays full speed)
+            const speedMul = Math.min(1, l);
+            this.x += nx * effectiveSpeed * speedMul * dt;
+            this.y += ny * effectiveSpeed * speedMul * dt;
             this.x = Math.max(this.radius, Math.min(this.game.width - this.radius, this.x));
             this.y = Math.max(this.radius, Math.min(this.game.height - this.radius, this.y));
         }
@@ -731,6 +741,8 @@ class Game {
         window.addEventListener('resize', () => this.resize());
 
         this.input = new InputHandler();
+        this.setupMobileControls();
+        this.updateMobileControlsVisibility();
         this.saveManager = new SaveManager();
         this.saveManager.updateUI();
 
@@ -756,6 +768,127 @@ class Game {
         this.loop = this.loop.bind(this);
         this.lastTime = performance.now(); // Init lastTime before loop
         requestAnimationFrame(this.loop);
+    }
+
+    setupMobileControls() {
+        const mobileControls = document.getElementById('mobile-controls');
+        const zone = document.getElementById('joystick-zone');
+        const joystick = document.getElementById('joystick');
+        const knob = document.getElementById('joystick-knob');
+        if (!mobileControls || !zone || !joystick || !knob) return;
+
+        const isMobile = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || ('ontouchstart' in window);
+        if (!isMobile) {
+            mobileControls.classList.add('hidden');
+            mobileControls.setAttribute('aria-hidden', 'true');
+            return;
+        }
+
+        // Store refs for later show/hide control.
+        this.mobileControls = { mobileControls, zone, joystick, knob, isMobile };
+        // Default hidden; we only show when state === 'PLAYING'.
+        mobileControls.classList.add('hidden');
+        mobileControls.setAttribute('aria-hidden', 'true');
+
+        let active = false;
+        let pointerId = null;
+        let cx = 0, cy = 0;
+
+        const deadZone = 0.12;
+
+        const getMaxR = () => {
+            const jr = joystick.clientWidth / 2;
+            const kr = knob.clientWidth / 2;
+            return Math.max(10, jr - kr);
+        };
+
+        const setJoystickCenter = (x, y) => {
+            joystick.style.left = `${x}px`;
+            joystick.style.top = `${y}px`;
+            joystick.style.bottom = 'auto';
+        };
+
+        const setKnob = (x, y) => {
+            knob.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`;
+        };
+
+        const setAxisFromOffset = (ox, oy) => {
+            const maxR = getMaxR();
+            let ax = ox / maxR;
+            let ay = oy / maxR;
+            const len = Math.sqrt(ax * ax + ay * ay);
+            if (len < deadZone) {
+                ax = 0; ay = 0;
+            } else if (len > 1) {
+                ax /= len; ay /= len;
+            }
+            this.input.setMoveAxis(ax, ay);
+        };
+
+        const onDown = (e) => {
+            // Only left-bottom zone triggers joystick. This is "跟随轮盘式"：按下即把轮盘中心放到手指处。
+            active = true;
+            pointerId = e.pointerId;
+            try { zone.setPointerCapture(pointerId); } catch (_) { }
+
+            cx = e.clientX;
+            cy = e.clientY;
+            setJoystickCenter(cx, cy);
+            joystick.classList.add('active');
+            setKnob(0, 0);
+            this.input.setMoveAxis(0, 0);
+            e.preventDefault();
+        };
+
+        const onMove = (e) => {
+            if (!active || e.pointerId !== pointerId) return;
+            const maxR = getMaxR();
+
+            let ox = e.clientX - cx;
+            let oy = e.clientY - cy;
+            const dist = Math.sqrt(ox * ox + oy * oy);
+            if (dist > maxR) {
+                ox = (ox / dist) * maxR;
+                oy = (oy / dist) * maxR;
+            }
+
+            setKnob(ox, oy);
+            setAxisFromOffset(ox, oy);
+            e.preventDefault();
+        };
+
+        const onUp = (e) => {
+            if (e.pointerId !== pointerId) return;
+            active = false;
+            pointerId = null;
+            joystick.classList.remove('active');
+            setKnob(0, 0);
+            this.input.setMoveAxis(0, 0);
+            e.preventDefault();
+        };
+
+        zone.addEventListener('pointerdown', onDown, { passive: false });
+        zone.addEventListener('pointermove', onMove, { passive: false });
+        zone.addEventListener('pointerup', onUp, { passive: false });
+        zone.addEventListener('pointercancel', onUp, { passive: false });
+    }
+
+    updateMobileControlsVisibility() {
+        const mc = this.mobileControls;
+        if (!mc || !mc.isMobile) return;
+
+        const shouldShow = (this.state === 'PLAYING');
+        if (shouldShow) {
+            mc.mobileControls.classList.remove('hidden');
+            mc.mobileControls.setAttribute('aria-hidden', 'false');
+        } else {
+            // Hide + reset any movement.
+            mc.mobileControls.classList.add('hidden');
+            mc.mobileControls.setAttribute('aria-hidden', 'true');
+            mc.joystick.classList.remove('active');
+            mc.knob.style.transform = 'translate(-50%, -50%)';
+            this.input.setMoveAxis(0, 0);
+        }
     }
 
     resize() {
@@ -791,6 +924,7 @@ class Game {
 
     startGame() {
         this.state = 'PLAYING';
+        this.updateMobileControlsVisibility();
         document.getElementById('start-bonus-modal').classList.add('hidden');
         document.getElementById('game-container').classList.remove('hidden');
         document.getElementById('game-over-modal').classList.add('hidden');
@@ -830,12 +964,14 @@ class Game {
         this.waveTimer = 0;
         document.getElementById('stage-clear-modal').classList.add('hidden');
         this.state = 'PLAYING';
+        this.updateMobileControlsVisibility();
         this.lastTime = performance.now();
         this.updateHUDWave();
     }
 
     returnToMenu() {
         this.state = 'MENU';
+        this.updateMobileControlsVisibility();
         document.getElementById('game-container').classList.add('hidden');
         document.getElementById('main-menu').classList.remove('hidden');
         document.getElementById('pause-modal').classList.add('hidden');
@@ -845,10 +981,12 @@ class Game {
     togglePause() {
         if (this.state === 'PLAYING') {
             this.state = 'PAUSED';
+            this.updateMobileControlsVisibility();
             document.getElementById('pause-modal').classList.remove('hidden');
             this.updateStatsPanel();
         } else if (this.state === 'PAUSED') {
             this.state = 'PLAYING';
+            this.updateMobileControlsVisibility();
             document.getElementById('pause-modal').classList.add('hidden');
             this.lastTime = performance.now();
         }
@@ -1258,6 +1396,7 @@ class Game {
 
     showInventoryFullModal(newItem) {
         this.state = 'PAUSED';
+        this.updateMobileControlsVisibility();
         this.pendingItem = newItem;
         const modal = document.getElementById('inventory-modal');
         document.getElementById('new-item-name').innerText = newItem.name;
@@ -1283,6 +1422,7 @@ class Game {
 
     showUpgradeModal() {
         this.state = 'PAUSED';
+        this.updateMobileControlsVisibility();
         const m = document.getElementById('upgrade-modal');
         const c = document.getElementById('upgrade-options');
         c.innerHTML = '';
@@ -1317,10 +1457,16 @@ class Game {
         m.classList.remove('hidden');
     }
 
-    closeModal(id) { document.getElementById(id).classList.add('hidden'); this.lastTime = performance.now(); this.state = 'PLAYING'; }
+    closeModal(id) {
+        document.getElementById(id).classList.add('hidden');
+        this.lastTime = performance.now();
+        this.state = 'PLAYING';
+        this.updateMobileControlsVisibility();
+    }
     
     gameOver() {
         this.state = 'GAMEOVER';
+        this.updateMobileControlsVisibility();
         const pts = Math.floor(this.gameTime / 5);
         this.saveManager.addPoints(pts);
         const td = document.getElementById('time-display');
@@ -1393,8 +1539,18 @@ class Game {
 }
 
 class InputHandler {
-    constructor() { this.k = {}; window.addEventListener('keydown', e => { if(e.key==='Escape') game.togglePause(); this.k[e.key] = true; }); window.addEventListener('keyup', e => this.k[e.key] = false); }
+    constructor() {
+        this.k = {};
+        this.axis = { x: 0, y: 0 };
+        window.addEventListener('keydown', e => { if(e.key==='Escape') game.togglePause(); this.k[e.key] = true; });
+        window.addEventListener('keyup', e => this.k[e.key] = false);
+    }
     isKeyDown(k) { return !!this.k[k]; }
+    setMoveAxis(x, y) {
+        this.axis.x = Math.max(-1, Math.min(1, x || 0));
+        this.axis.y = Math.max(-1, Math.min(1, y || 0));
+    }
+    getMoveAxis() { return this.axis; }
 }
 
 const game = new Game();

@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>提莫快跑 - 轮回 (Heirloom Edition)</title>
     <link rel="stylesheet" href="style.css">
 </head>
@@ -63,6 +63,14 @@
 
     <div id="game-container" class="hidden">
         <canvas id="gameCanvas"></canvas>
+
+        <!-- Mobile Controls: Virtual Joystick (Hidden by default) -->
+        <div id="mobile-controls" class="hidden" aria-hidden="true">
+            <div id="joystick-zone" aria-hidden="true"></div>
+            <div id="joystick" aria-hidden="true">
+                <div id="joystick-knob" aria-hidden="true"></div>
+            </div>
+        </div>
         
         <!-- HUD -->
         <div id="hud">
