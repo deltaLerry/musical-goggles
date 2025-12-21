@@ -794,12 +794,24 @@ class Game {
         let pointerId = null;
         let cx = 0, cy = 0;
 
-        const deadZone = 0.12;
+        // Smaller deadzone + slight response curve for more "snappy" feel on mobile.
+        const deadZone = 0.06;
 
         const getMaxR = () => {
             const jr = joystick.clientWidth / 2;
             const kr = knob.clientWidth / 2;
             return Math.max(10, jr - kr);
+        };
+
+        const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+
+        const clampCenterToViewport = (x, y) => {
+            // Keep the joystick fully on-screen.
+            const jr = joystick.clientWidth / 2;
+            const m = Math.max(10, jr + 8);
+            const nx = clamp(x, m, window.innerWidth - m);
+            const ny = clamp(y, m, window.innerHeight - m);
+            return { x: nx, y: ny };
         };
 
         const setJoystickCenter = (x, y) => {
@@ -819,8 +831,13 @@ class Game {
             const len = Math.sqrt(ax * ax + ay * ay);
             if (len < deadZone) {
                 ax = 0; ay = 0;
-            } else if (len > 1) {
-                ax /= len; ay /= len;
+            } else {
+                // Normalize + apply curve so small drags feel more responsive.
+                const n = Math.min(1, len);
+                const scaled = Math.pow(n, 0.78); // <1 => boost small inputs
+                const inv = 1 / (len || 1);
+                ax = ax * inv * scaled;
+                ay = ay * inv * scaled;
             }
             this.input.setMoveAxis(ax, ay);
         };
@@ -829,10 +846,11 @@ class Game {
             // Only left-bottom zone triggers joystick. This is "跟随轮盘式"：按下即把轮盘中心放到手指处。
             active = true;
             pointerId = e.pointerId;
-            try { zone.setPointerCapture(pointerId); } catch (_) { }
+            try { e.currentTarget.setPointerCapture(pointerId); } catch (_) { }
 
-            cx = e.clientX;
-            cy = e.clientY;
+            const c = clampCenterToViewport(e.clientX, e.clientY);
+            cx = c.x;
+            cy = c.y;
             setJoystickCenter(cx, cy);
             joystick.classList.add('active');
             setKnob(0, 0);
@@ -867,10 +885,75 @@ class Game {
             e.preventDefault();
         };
 
-        zone.addEventListener('pointerdown', onDown, { passive: false });
-        zone.addEventListener('pointermove', onMove, { passive: false });
-        zone.addEventListener('pointerup', onUp, { passive: false });
-        zone.addEventListener('pointercancel', onUp, { passive: false });
+        // Bind to zone + joystick + knob so pressing directly on the wheel/knob always works.
+        // Use window move/up so we don't "lose" the joystick when finger leaves the zone slightly.
+        const bindDown = (el) => el.addEventListener('pointerdown', onDown, { passive: false });
+        bindDown(zone);
+        bindDown(joystick);
+        bindDown(knob);
+
+        window.addEventListener('pointermove', onMove, { passive: false });
+        window.addEventListener('pointerup', onUp, { passive: false });
+        window.addEventListener('pointercancel', onUp, { passive: false });
+
+        // Touch fallback (some WebViews / older iOS Safari are flaky with PointerEvents)
+        const touchState = { active: false, id: null };
+        const touchToPoint = (t) => ({ x: t.clientX, y: t.clientY });
+        const onTouchStart = (ev) => {
+            if (!ev.changedTouches || ev.changedTouches.length === 0) return;
+            const t = ev.changedTouches[0];
+            touchState.active = true;
+            touchState.id = t.identifier;
+            const p = touchToPoint(t);
+            const c = clampCenterToViewport(p.x, p.y);
+            cx = c.x; cy = c.y;
+            setJoystickCenter(cx, cy);
+            joystick.classList.add('active');
+            setKnob(0, 0);
+            this.input.setMoveAxis(0, 0);
+            ev.preventDefault();
+        };
+        const onTouchMove = (ev) => {
+            if (!touchState.active || !ev.touches) return;
+            let t = null;
+            for (let i = 0; i < ev.touches.length; i++) {
+                if (ev.touches[i].identifier === touchState.id) { t = ev.touches[i]; break; }
+            }
+            if (!t) return;
+            const p = touchToPoint(t);
+            const maxR = getMaxR();
+            let ox = p.x - cx;
+            let oy = p.y - cy;
+            const dist = Math.sqrt(ox * ox + oy * oy);
+            if (dist > maxR) {
+                ox = (ox / dist) * maxR;
+                oy = (oy / dist) * maxR;
+            }
+            setKnob(ox, oy);
+            setAxisFromOffset(ox, oy);
+            ev.preventDefault();
+        };
+        const onTouchEnd = (ev) => {
+            if (!touchState.active || !ev.changedTouches) return;
+            for (let i = 0; i < ev.changedTouches.length; i++) {
+                if (ev.changedTouches[i].identifier === touchState.id) {
+                    touchState.active = false;
+                    touchState.id = null;
+                    joystick.classList.remove('active');
+                    setKnob(0, 0);
+                    this.input.setMoveAxis(0, 0);
+                    ev.preventDefault();
+                    break;
+                }
+            }
+        };
+
+        zone.addEventListener('touchstart', onTouchStart, { passive: false });
+        joystick.addEventListener('touchstart', onTouchStart, { passive: false });
+        knob.addEventListener('touchstart', onTouchStart, { passive: false });
+        window.addEventListener('touchmove', onTouchMove, { passive: false });
+        window.addEventListener('touchend', onTouchEnd, { passive: false });
+        window.addEventListener('touchcancel', onTouchEnd, { passive: false });
     }
 
     updateMobileControlsVisibility() {

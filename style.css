@@ -27,8 +27,8 @@ body {
     position: absolute;
     left: 0;
     bottom: 0;
-    width: 55vw;
-    height: 70vh;
+    width: 65vw;
+    height: 80vh;
     pointer-events: auto;
     touch-action: none;
     background: transparent;
