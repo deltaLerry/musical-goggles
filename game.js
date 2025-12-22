@@ -1491,37 +1491,44 @@ class Game {
             return;
         }
 
+        // 只展示主动技能为 icon（尽量不遮挡）。被动技能不显示在 HUD 上。
         const entries = ids
             .map(id => ({ id, lvl: p.skills[id], def: SKILLS[id] }))
-            .filter(s => s.def)
-            .sort((a, b) => (a.def.type === 'active' ? -1 : 1) - (b.def.type === 'active' ? -1 : 1));
+            .filter(s => s.def && s.def.type === 'active')
+            .sort((a, b) => (b.lvl || 0) - (a.lvl || 0));
 
-        const fmt = (sec) => {
-            if (sec <= 0) return '就绪';
-            if (sec < 10) return `${sec.toFixed(1)}s`;
-            return `${Math.ceil(sec)}s`;
-        };
+        if (entries.length === 0) {
+            el.innerHTML = '';
+            return;
+        }
 
-        let html = `<div class="skill-panel-title">技能</div>`;
+        const ringR = 16;
+        const C = 2 * Math.PI * ringR;
+        const safe = (s) => String(s || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+
+        let html = '';
         entries.forEach(s => {
-            const isActive = s.def.type === 'active';
-            let cd = 0, rem = 0, pct = 0, extra = '';
-            if (isActive) {
-                const params = (s.def.getParams ? s.def.getParams(this, s.lvl, p) : { cooldown: s.def.cooldown });
-                cd = params.cooldown || s.def.cooldown || 0;
-                const t = p.skillTimers[s.id] || 0;
-                rem = Math.max(0, cd - t);
-                pct = (cd > 0 ? Math.min(1, t / cd) : 0);
-                extra = `<div class="skill-cd">CD: ${fmt(rem)}<div class="skill-cd-bar"><div class="skill-cd-fill" style="width:${(pct * 100).toFixed(1)}%"></div></div></div>`;
-            } else {
-                extra = `<div class="skill-passive">被动</div>`;
-            }
-            const tip = (s.def.desc ? String(s.def.desc(s.lvl)).replaceAll('"', '&quot;') : '');
+            const def = s.def;
+            const lvl = s.lvl;
+            const params = def.getParams ? def.getParams(this, lvl, p) : { cooldown: def.cooldown };
+            const cd = (params && params.cooldown !== undefined) ? params.cooldown : (def.cooldown || 0);
+            const t = p.skillTimers[s.id] || 0;
+            const pct = (cd > 0 ? Math.min(1, Math.max(0, t / cd)) : 1); // 0~1，越大越接近“转好”
+            const dashOffset = (1 - pct) * C;
+
+            const label = (def.name && def.name.length > 0) ? def.name[0] : '?';
+            const tip = safe(def.name) + ` (Lv.${lvl})\n` + safe(def.desc ? def.desc(lvl) : '');
+
             html += `
-                <div class="skill-row ${isActive ? 'active' : 'passive'}" title="${tip}">
-                    <div class="skill-name">${s.def.name}</div>
-                    <div class="skill-lvl">Lv.${s.lvl}</div>
-                    ${extra}
+                <div class="skill-icon" title="${tip}" style="--pct:${(pct * 100).toFixed(1)}">
+                    <svg class="skill-ring" viewBox="0 0 36 36" aria-hidden="true">
+                        <circle class="skill-ring-bg" cx="18" cy="18" r="${ringR}" />
+                        <circle class="skill-ring-fg" cx="18" cy="18" r="${ringR}"
+                            stroke-dasharray="${C.toFixed(3)}"
+                            stroke-dashoffset="${dashOffset.toFixed(3)}" />
+                    </svg>
+                    <div class="skill-label">${safe(label)}</div>
+                    <div class="skill-level">${lvl}</div>
                 </div>
             `;
         });
