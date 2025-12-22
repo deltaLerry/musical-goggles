@@ -1514,7 +1514,7 @@ class Game {
         this.player = new Player(this);
 
         // Reset camera near player so the first frame doesn't "jump".
-        const scale = (this.mobileControls && this.mobileControls.isMobile) ? 0.86 : 1.0;
+        const scale = (this.mobileControls && this.mobileControls.isMobile) ? 0.80 : 1.0;
         const viewWorldW = this.width / scale;
         const viewWorldH = this.height / scale;
         this.cameraX = Math.max(0, Math.min(this.worldWidth - viewWorldW, this.player.x - viewWorldW / 2));
@@ -2244,7 +2244,7 @@ class Game {
         this.ctx.clearRect(0, 0, this.width, this.height);
 
         // Slight zoom-out on mobile so the screen feels less cramped.
-        const scale = (this.mobileControls && this.mobileControls.isMobile) ? 0.86 : 1.0;
+        const scale = (this.mobileControls && this.mobileControls.isMobile) ? 0.80 : 1.0;
 
         // Camera with deadzone: reduce motion sickness by not moving the camera all the time.
         const p = this.player;
