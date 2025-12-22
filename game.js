@@ -8,7 +8,9 @@ class SoundManager {
         this.volume = 0.22;
         this.ctx = null;
         this.master = null;
+        this.comp = null;
         this._lastPlayAt = Object.create(null);
+        this._noiseBuf = null;
         this._loadPrefs();
     }
 
@@ -47,7 +49,20 @@ class SoundManager {
         this.ctx = new AC();
         this.master = this.ctx.createGain();
         this.master.gain.value = this.volume;
-        this.master.connect(this.ctx.destination);
+
+        // 轻量压缩/限幅：避免多声部叠加导致爆音
+        this.comp = this.ctx.createDynamicsCompressor();
+        this.comp.threshold.value = -18;
+        this.comp.knee.value = 20;
+        this.comp.ratio.value = 6;
+        this.comp.attack.value = 0.004;
+        this.comp.release.value = 0.12;
+
+        this.master.connect(this.comp);
+        this.comp.connect(this.ctx.destination);
+
+        // 预生成噪声（用于“金币/闪光”那种轻打击感）
+        this._noiseBuf = this._noiseBuf || this._createNoiseBuffer(0.25);
         try { await this.ctx.resume(); } catch (_) { }
     }
 
@@ -66,6 +81,121 @@ class SoundManager {
         return false;
     }
 
+    _rand(min, max) { return min + Math.random() * (max - min); }
+
+    _createNoiseBuffer(seconds) {
+        if (!this.ctx) return null;
+        const len = Math.max(1, Math.floor(this.ctx.sampleRate * Math.max(0.02, seconds || 0.25)));
+        const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1);
+        return buf;
+    }
+
+    _mkPanner(pan) {
+        // StereoPanner 兼容性不错；不支持就退化为直连
+        if (!this.ctx || !this.ctx.createStereoPanner) return null;
+        const p = this.ctx.createStereoPanner();
+        p.pan.value = Math.max(-1, Math.min(1, pan || 0));
+        return p;
+    }
+
+    _tone({ at, freq, dur, type, gain, pan, glideTo, q }) {
+        if (!this.ctx || !this.master) return;
+        const t0 = at;
+        const d = Math.max(0.02, dur || 0.08);
+        const peak = Math.max(0.0001, Math.min(1, (gain ?? 1) * this.volume));
+
+        const g = this.ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t0 + 0.004);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.08);
+
+        const osc = this.ctx.createOscillator();
+        osc.type = type || 'sine';
+
+        // 少量随机 detune 增加“辨识度/不那么死板”
+        const det = this._rand(-12, 12); // cents
+        osc.detune.setValueAtTime(det, t0);
+        osc.frequency.setValueAtTime(Math.max(30, freq || 600), t0);
+        if (glideTo) osc.frequency.exponentialRampToValueAtTime(Math.max(30, glideTo), t0 + Math.max(0.02, d));
+
+        // 可选滤波（用于更像“金币/铃铛”的质感）
+        let nodeOut = g;
+        if (q) {
+            const bp = this.ctx.createBiquadFilter();
+            bp.type = q.type || 'bandpass';
+            bp.frequency.setValueAtTime(q.f || 1800, t0);
+            bp.Q.setValueAtTime(q.Q || 6, t0);
+            osc.connect(bp);
+            bp.connect(g);
+        } else {
+            osc.connect(g);
+        }
+
+        const pn = this._mkPanner(pan || 0);
+        if (pn) {
+            g.connect(pn);
+            pn.connect(this.master);
+        } else {
+            g.connect(this.master);
+        }
+
+        osc.start(t0);
+        osc.stop(t0 + d + 0.12);
+    }
+
+    _noiseTick({ at, dur, gain, pan, filter }) {
+        if (!this.ctx || !this.master || !this._noiseBuf) return;
+        const t0 = at;
+        const d = Math.max(0.01, dur || 0.04);
+        const peak = Math.max(0.0001, Math.min(1, (gain ?? 1) * this.volume));
+
+        const src = this.ctx.createBufferSource();
+        src.buffer = this._noiseBuf;
+
+        let node = src;
+        if (filter) {
+            const f = this.ctx.createBiquadFilter();
+            f.type = filter.type || 'bandpass';
+            f.frequency.setValueAtTime(filter.f || 2200, t0);
+            f.Q.setValueAtTime(filter.Q || 10, t0);
+            node.connect(f);
+            node = f;
+        }
+
+        const g = this.ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t0 + 0.002);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.06);
+        node.connect(g);
+
+        const pn = this._mkPanner(pan || 0);
+        if (pn) {
+            g.connect(pn);
+            pn.connect(this.master);
+        } else {
+            g.connect(this.master);
+        }
+
+        src.start(t0);
+        src.stop(t0 + d + 0.08);
+    }
+
+    _seq(at, steps) {
+        let t = at;
+        (steps || []).forEach(s => {
+            const dt = Math.max(0, s.dt || 0);
+            t += dt;
+            if (s.noise) {
+                this._noiseTick({ at: t, ...s.noise });
+            }
+            if (s.tone) {
+                this._tone({ at: t, ...s.tone });
+            }
+        });
+    }
+
     async play(name) {
         if (!this.enabled) return;
         await this._ensureContext();
@@ -73,51 +203,103 @@ class SoundManager {
         await this._resumeIfNeeded();
         if (this.ctx.state !== 'running') return;
 
-        // 防止某些事件短时间内重复触发造成噪音
-        if (this._rateLimit(name, 90)) return;
-
         const t = this.ctx.currentTime;
-        const g = this.ctx.createGain();
-        g.connect(this.master);
 
-        // 默认包络
-        const attack = 0.004;
-        const release = 0.065;
-        const peak = Math.max(0, Math.min(1, this.volume));
-        g.gain.setValueAtTime(0.0001, t);
-        g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t + attack);
-
-        const osc = this.ctx.createOscillator();
-        osc.connect(g);
-
-        // 事件到“音色方案”的映射：尽量克制、清爽，不做打击/受伤类音效
-        const presets = {
-            click:      { type: 'triangle', f: 520, d: 0.06 },
-            open:       { type: 'sine',     f: 660, d: 0.08 },
-            close:      { type: 'sine',     f: 520, d: 0.08 },
-            start:      { type: 'sine',     f: 740, d: 0.09, glide: 980 },
-            purchase:   { type: 'triangle', f: 820, d: 0.07 },
-            levelUp:    { type: 'sine',     f: 880, d: 0.12, glide: 1320 },
-            bossSpawn:  { type: 'sawtooth', f: 220, d: 0.10, glide: 330 },
-            bossClear:  { type: 'sine',     f: 520, d: 0.14, glide: 1040 },
-            loot:       { type: 'triangle', f: 960, d: 0.09 },
-            stageClear: { type: 'sine',     f: 660, d: 0.12, glide: 990 },
-            pause:      { type: 'square',   f: 300, d: 0.07 },
-            resume:     { type: 'square',   f: 380, d: 0.07 },
-            toggleOn:   { type: 'triangle', f: 600, d: 0.06, glide: 820 },
-            toggleOff:  { type: 'triangle', f: 420, d: 0.06 }
+        // 每个事件单独的限流（更丰富音型会更长，避免重复叠加）
+        const minIntervals = {
+            click: 45,
+            open: 120,
+            close: 120,
+            start: 180,
+            purchase: 120,
+            levelUp: 380,
+            bossSpawn: 600,
+            bossClear: 650,
+            loot: 180,
+            stageClear: 650,
+            pause: 140,
+            resume: 140,
+            toggleOn: 120,
+            toggleOff: 120
         };
-        const p = presets[name] || presets.click;
+        const minI = (minIntervals[name] ?? 90);
+        if (this._rateLimit(name, minI)) return;
 
-        osc.type = p.type || 'sine';
-        osc.frequency.setValueAtTime(p.f || 600, t);
-        if (p.glide) osc.frequency.exponentialRampToValueAtTime(p.glide, t + Math.max(0.02, (p.d || 0.08)));
+        // 事件到“音型/音色”的映射：强调识别度（短旋律/双音/轻打击）
+        // 注意：依然不用于“受伤/被攻击”类事件。
+        const panTiny = this._rand(-0.15, 0.15);
+        const seqs = {
+            click: () => this._seq(t, [
+                { dt: 0.0, tone: { freq: 640, dur: 0.045, type: 'triangle', gain: 0.85, pan: panTiny } }
+            ]),
+            open: () => this._seq(t, [
+                { dt: 0.0, tone: { freq: 660, dur: 0.06, type: 'sine', gain: 0.70, pan: -0.08 } },
+                { dt: 0.06, tone: { freq: 880, dur: 0.07, type: 'sine', gain: 0.75, pan: 0.08 } }
+            ]),
+            close: () => this._seq(t, [
+                { dt: 0.0, tone: { freq: 780, dur: 0.055, type: 'sine', gain: 0.68, pan: 0.06 } },
+                { dt: 0.06, tone: { freq: 520, dur: 0.07, type: 'sine', gain: 0.74, pan: -0.06 } }
+            ]),
+            start: () => this._seq(t, [
+                { dt: 0.0, tone: { freq: 740, dur: 0.06, type: 'sine', gain: 0.78, pan: -0.06 } },
+                { dt: 0.06, tone: { freq: 988, dur: 0.06, type: 'sine', gain: 0.82, pan: 0.00 } },
+                { dt: 0.06, tone: { freq: 1245, dur: 0.085, type: 'triangle', gain: 0.86, pan: 0.06 } },
+            ]),
+            purchase: () => this._seq(t, [
+                // “金币轻击” = 一点点噪声（带通） + 两个铃音
+                { dt: 0.0, noise: { dur: 0.022, gain: 0.40, pan: -0.05, filter: { type: 'bandpass', f: 2400, Q: 12 } } },
+                { dt: 0.0, tone: { freq: 1046, dur: 0.055, type: 'triangle', gain: 0.78, pan: -0.05, q: { type: 'bandpass', f: 1800, Q: 6 } } },
+                { dt: 0.06, tone: { freq: 1568, dur: 0.070, type: 'triangle', gain: 0.82, pan: 0.05, q: { type: 'bandpass', f: 2200, Q: 6 } } }
+            ]),
+            levelUp: () => this._seq(t, [
+                // 上行三连音（更好记）
+                { dt: 0.0, tone: { freq: 880, dur: 0.07, type: 'sine', gain: 0.78, pan: -0.07 } },
+                { dt: 0.07, tone: { freq: 1109, dur: 0.07, type: 'sine', gain: 0.82, pan: 0.00 } },
+                { dt: 0.07, tone: { freq: 1320, dur: 0.11, type: 'triangle', gain: 0.88, pan: 0.07, glideTo: 1760 } }
+            ]),
+            loot: () => this._seq(t, [
+                // “闪光掉落” = 高音双叮 + 轻微噪声闪烁
+                { dt: 0.0, noise: { dur: 0.02, gain: 0.22, pan: 0.02, filter: { type: 'highpass', f: 3800, Q: 0.8 } } },
+                { dt: 0.0, tone: { freq: 1175, dur: 0.055, type: 'triangle', gain: 0.78, pan: -0.06, q: { type: 'bandpass', f: 2100, Q: 7 } } },
+                { dt: 0.07, tone: { freq: 1760, dur: 0.075, type: 'triangle', gain: 0.86, pan: 0.06, q: { type: 'bandpass', f: 2600, Q: 7 } } }
+            ]),
+            bossSpawn: () => this._seq(t, [
+                // 低频脉冲 + 上滑（注意音量克制）
+                { dt: 0.0, tone: { freq: 120, dur: 0.12, type: 'sine', gain: 0.55, pan: -0.02, glideTo: 170 } },
+                { dt: 0.06, tone: { freq: 150, dur: 0.14, type: 'sawtooth', gain: 0.38, pan: 0.02, glideTo: 260, q: { type: 'lowpass', f: 900, Q: 0.7 } } }
+            ]),
+            bossClear: () => this._seq(t, [
+                // “胜利”三音 + 尾音上滑
+                { dt: 0.0, tone: { freq: 523, dur: 0.07, type: 'sine', gain: 0.72, pan: -0.06 } },
+                { dt: 0.07, tone: { freq: 784, dur: 0.07, type: 'sine', gain: 0.78, pan: 0.00 } },
+                { dt: 0.07, tone: { freq: 1046, dur: 0.12, type: 'triangle', gain: 0.86, pan: 0.06, glideTo: 1568 } }
+            ]),
+            stageClear: () => this._seq(t, [
+                // 更长一点的“过关”上行（和升级区别：间隔更大/尾音更长）
+                { dt: 0.0, tone: { freq: 659, dur: 0.08, type: 'sine', gain: 0.74, pan: -0.06 } },
+                { dt: 0.10, tone: { freq: 988, dur: 0.08, type: 'sine', gain: 0.80, pan: 0.00 } },
+                { dt: 0.10, tone: { freq: 1319, dur: 0.15, type: 'triangle', gain: 0.88, pan: 0.06, glideTo: 1760 } }
+            ]),
+            pause: () => this._seq(t, [
+                { dt: 0.0, tone: { freq: 300, dur: 0.05, type: 'square', gain: 0.58, pan: -0.05 } },
+                { dt: 0.06, tone: { freq: 240, dur: 0.06, type: 'square', gain: 0.60, pan: 0.05 } },
+            ]),
+            resume: () => this._seq(t, [
+                { dt: 0.0, tone: { freq: 240, dur: 0.05, type: 'square', gain: 0.56, pan: -0.05 } },
+                { dt: 0.06, tone: { freq: 360, dur: 0.06, type: 'square', gain: 0.62, pan: 0.05 } },
+            ]),
+            toggleOn: () => this._seq(t, [
+                { dt: 0.0, tone: { freq: 600, dur: 0.05, type: 'triangle', gain: 0.72, pan: -0.05 } },
+                { dt: 0.05, tone: { freq: 820, dur: 0.06, type: 'triangle', gain: 0.78, pan: 0.05 } },
+            ]),
+            toggleOff: () => this._seq(t, [
+                { dt: 0.0, tone: { freq: 520, dur: 0.05, type: 'triangle', gain: 0.70, pan: 0.04 } },
+                { dt: 0.05, tone: { freq: 360, dur: 0.06, type: 'triangle', gain: 0.76, pan: -0.04 } },
+            ]),
+        };
 
-        const dur = Math.max(0.03, p.d || 0.08);
-        g.gain.exponentialRampToValueAtTime(0.0001, t + dur + release);
-
-        osc.start(t);
-        osc.stop(t + dur + release + 0.01);
+        const fn = seqs[name] || seqs.click;
+        fn();
     }
 }
 
