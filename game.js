@@ -1,5 +1,126 @@
 // --- Constants & Data Definitions ---
 
+// --- Sound (SFX) ---
+// 说明：仅用于“界面/里程碑”提示音，不包含任何“受伤/被攻击”音效（避免混乱）。
+class SoundManager {
+    constructor() {
+        this.enabled = true;
+        this.volume = 0.22;
+        this.ctx = null;
+        this.master = null;
+        this._lastPlayAt = Object.create(null);
+        this._loadPrefs();
+    }
+
+    _loadPrefs() {
+        const k = localStorage.getItem('teemo_sfx_enabled');
+        if (k !== null) this.enabled = (k === '1');
+        const v = parseFloat(localStorage.getItem('teemo_sfx_volume') || '');
+        if (!Number.isNaN(v)) this.volume = Math.max(0, Math.min(1, v));
+    }
+
+    _savePrefs() {
+        try {
+            localStorage.setItem('teemo_sfx_enabled', this.enabled ? '1' : '0');
+            localStorage.setItem('teemo_sfx_volume', String(this.volume));
+        } catch (_) { }
+    }
+
+    setEnabled(on) {
+        this.enabled = !!on;
+        this._savePrefs();
+        if (!this.enabled) {
+            // 不强制关闭 ctx，避免频繁创建；只是不再播放。
+        }
+    }
+
+    toggle() {
+        this.setEnabled(!this.enabled);
+        // 给一个非常轻的提示音（仅在开启后）
+        if (this.enabled) this.play('toggleOn');
+    }
+
+    async _ensureContext() {
+        if (this.ctx) return;
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        this.ctx = new AC();
+        this.master = this.ctx.createGain();
+        this.master.gain.value = this.volume;
+        this.master.connect(this.ctx.destination);
+        try { await this.ctx.resume(); } catch (_) { }
+    }
+
+    async _resumeIfNeeded() {
+        if (!this.ctx) return;
+        if (this.ctx.state === 'suspended') {
+            try { await this.ctx.resume(); } catch (_) { }
+        }
+    }
+
+    _rateLimit(name, minIntervalMs) {
+        const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        const last = this._lastPlayAt[name] || 0;
+        if (now - last < minIntervalMs) return true;
+        this._lastPlayAt[name] = now;
+        return false;
+    }
+
+    async play(name) {
+        if (!this.enabled) return;
+        await this._ensureContext();
+        if (!this.ctx || !this.master) return;
+        await this._resumeIfNeeded();
+        if (this.ctx.state !== 'running') return;
+
+        // 防止某些事件短时间内重复触发造成噪音
+        if (this._rateLimit(name, 90)) return;
+
+        const t = this.ctx.currentTime;
+        const g = this.ctx.createGain();
+        g.connect(this.master);
+
+        // 默认包络
+        const attack = 0.004;
+        const release = 0.065;
+        const peak = Math.max(0, Math.min(1, this.volume));
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t + attack);
+
+        const osc = this.ctx.createOscillator();
+        osc.connect(g);
+
+        // 事件到“音色方案”的映射：尽量克制、清爽，不做打击/受伤类音效
+        const presets = {
+            click:      { type: 'triangle', f: 520, d: 0.06 },
+            open:       { type: 'sine',     f: 660, d: 0.08 },
+            close:      { type: 'sine',     f: 520, d: 0.08 },
+            start:      { type: 'sine',     f: 740, d: 0.09, glide: 980 },
+            purchase:   { type: 'triangle', f: 820, d: 0.07 },
+            levelUp:    { type: 'sine',     f: 880, d: 0.12, glide: 1320 },
+            bossSpawn:  { type: 'sawtooth', f: 220, d: 0.10, glide: 330 },
+            bossClear:  { type: 'sine',     f: 520, d: 0.14, glide: 1040 },
+            loot:       { type: 'triangle', f: 960, d: 0.09 },
+            stageClear: { type: 'sine',     f: 660, d: 0.12, glide: 990 },
+            pause:      { type: 'square',   f: 300, d: 0.07 },
+            resume:     { type: 'square',   f: 380, d: 0.07 },
+            toggleOn:   { type: 'triangle', f: 600, d: 0.06, glide: 820 },
+            toggleOff:  { type: 'triangle', f: 420, d: 0.06 }
+        };
+        const p = presets[name] || presets.click;
+
+        osc.type = p.type || 'sine';
+        osc.frequency.setValueAtTime(p.f || 600, t);
+        if (p.glide) osc.frequency.exponentialRampToValueAtTime(p.glide, t + Math.max(0.02, (p.d || 0.08)));
+
+        const dur = Math.max(0.03, p.d || 0.08);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + dur + release);
+
+        osc.start(t);
+        osc.stop(t + dur + release + 0.01);
+    }
+}
+
 const TALENTS = {
     'health_boost': { id: 'health_boost', name: '体魄', desc: '最大生命 +30', cost: 100, maxLevel: 5, category: 'strength', apply: (p) => p.baseMaxHp += 30 },
     'regen': { id: 'regen', name: '再生', desc: '每秒回血 +1.5', cost: 200, maxLevel: 3, category: 'strength', apply: (p) => p.regen += 1.5 },
@@ -160,6 +281,9 @@ const ITEMS = [
 class SaveManager {
     constructor() {
         this.data = { points: 0, talents: {}, heirlooms: [] };
+        // 可由 Game 注入：用于购买成功/失败提示音等（避免在这里硬依赖 Game）
+        this.onPurchaseTalent = null; // (ok:boolean)=>void
+        this.onAddHeirloom = null; // ()=>void
         this.load();
     }
     load() {
@@ -177,6 +301,9 @@ class SaveManager {
             this.data.talents[id] = lvl + 1;
             this.save();
             this.updateUI();
+            if (this.onPurchaseTalent) this.onPurchaseTalent(true);
+        } else {
+            if (this.onPurchaseTalent) this.onPurchaseTalent(false);
         }
     }
 
@@ -185,6 +312,7 @@ class SaveManager {
             this.data.heirlooms.push(itemId);
             this.save();
             this.updateUI();
+            if (this.onAddHeirloom) this.onAddHeirloom();
         }
     }
 
@@ -849,6 +977,8 @@ class Player {
             this.recalculateStats();
 
             this.heal(this.maxHp * 0.5); // Heal 50% on level up
+            // 里程碑提示音（不含受伤/被攻击音效）
+            this.game.sfx?.play('levelUp');
             this.game.showUpgradeModal();
         }
     }
@@ -894,22 +1024,49 @@ class Game {
         this.input = new InputHandler();
         this.setupMobileControls();
         this.updateMobileControlsVisibility();
+
+        // 音效系统（仅提示音；不含受伤/被攻击音效）
+        this.sfx = new SoundManager();
         this.saveManager = new SaveManager();
+        // 将购买/传承事件回调连接到音效（避免在 SaveManager 内部耦合 Game）
+        this.saveManager.onPurchaseTalent = (ok) => { if (ok) this.sfx.play('purchase'); };
+        this.saveManager.onAddHeirloom = () => { this.sfx.play('loot'); };
         this.saveManager.updateUI();
 
-        document.getElementById('start-game-btn').onclick = () => this.startGameSetup();
-        document.getElementById('shop-btn').onclick = () => this.openShop();
-        document.getElementById('shop-back-btn').onclick = () => this.closeShop();
-        document.getElementById('start-bonus-confirm-btn').onclick = () => this.startGame();
+        document.getElementById('start-game-btn').onclick = () => { this.sfx.play('start'); this.startGameSetup(); };
+        document.getElementById('shop-btn').onclick = () => { this.sfx.play('open'); this.openShop(); };
+        document.getElementById('shop-back-btn').onclick = () => { this.sfx.play('close'); this.closeShop(); };
+        document.getElementById('start-bonus-confirm-btn').onclick = () => { this.sfx.play('start'); this.startGame(); };
         
-        document.getElementById('return-menu-btn').onclick = () => this.returnToMenu();
-        document.getElementById('discard-btn').onclick = () => this.discardNewItem();
-        document.getElementById('loot-confirm-btn').onclick = () => this.collectLoot();
-        document.getElementById('next-stage-btn').onclick = () => this.nextStage();
-        document.getElementById('pause-btn').onclick = () => this.togglePause();
-        document.getElementById('resume-btn').onclick = () => this.togglePause();
-        document.getElementById('quit-btn').onclick = () => this.returnToMenu();
-        document.getElementById('stats-btn').onclick = () => this.togglePause();
+        document.getElementById('return-menu-btn').onclick = () => { this.sfx.play('close'); this.returnToMenu(); };
+        document.getElementById('discard-btn').onclick = () => { this.sfx.play('click'); this.discardNewItem(); };
+        document.getElementById('loot-confirm-btn').onclick = () => { this.sfx.play('loot'); this.collectLoot(); };
+        document.getElementById('next-stage-btn').onclick = () => { this.sfx.play('click'); this.nextStage(); };
+        document.getElementById('pause-btn').onclick = () => { this.togglePause(); };
+        document.getElementById('resume-btn').onclick = () => { this.togglePause(); };
+        document.getElementById('quit-btn').onclick = () => { this.sfx.play('close'); this.returnToMenu(); };
+        document.getElementById('stats-btn').onclick = () => { this.togglePause(); };
+
+        // 音效开关按钮（HUD 顶栏）
+        const soundBtn = document.getElementById('sound-btn');
+        if (soundBtn) {
+            const syncBtn = () => {
+                soundBtn.innerText = this.sfx.enabled ? '🔊' : '🔇';
+                soundBtn.title = this.sfx.enabled ? '音效：开' : '音效：关';
+            };
+            syncBtn();
+            soundBtn.onclick = () => {
+                // 关的时候也给一个“关闭”提示（先播再关，避免永远听不到）
+                if (this.sfx.enabled) {
+                    this.sfx.play('toggleOff');
+                    this.sfx.setEnabled(false);
+                } else {
+                    this.sfx.setEnabled(true);
+                    this.sfx.play('toggleOn');
+                }
+                syncBtn();
+            };
+        }
 
         this.state = 'MENU';
         // Enemy count tuning (spawn batch size / cap scales with player stats)
@@ -1232,11 +1389,13 @@ class Game {
             this.updateMobileControlsVisibility();
             document.getElementById('pause-modal').classList.remove('hidden');
             this.updateStatsPanel();
+            this.sfx?.play('pause');
         } else if (this.state === 'PAUSED') {
             this.state = 'PLAYING';
             this.updateMobileControlsVisibility();
             document.getElementById('pause-modal').classList.add('hidden');
             this.lastTime = performance.now();
+            this.sfx?.play('resume');
         }
     }
 
@@ -1513,6 +1672,7 @@ class Game {
     }
 
     spawnBoss() {
+        if (this.sfx) this.sfx.play('bossSpawn');
         document.getElementById('boss-hp-container').classList.remove('hidden');
         const bp = this.generateBossBlueprint();
         const boss = new Enemy(this, bp.config);
@@ -1521,6 +1681,7 @@ class Game {
     }
 
     bossDefeated(boss) {
+        if (this.sfx) this.sfx.play('bossClear');
         this.bossActive = false;
         this.bossRef = null;
         document.getElementById('boss-hp-container').classList.add('hidden');
@@ -1557,7 +1718,10 @@ class Game {
         else this.showStageClear();
     }
 
-    showStageClear() { document.getElementById('stage-clear-modal').classList.remove('hidden'); }
+    showStageClear() {
+        document.getElementById('stage-clear-modal').classList.remove('hidden');
+        this.sfx?.play('stageClear');
+    }
     findNearestEnemy(x, y, range) {
         let n = null; let min = range;
         this.enemies.forEach(e => {
