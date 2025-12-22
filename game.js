@@ -19,14 +19,130 @@ const SKILLS = {
     'quick_draw': { id: 'quick_draw', name: '快速拔枪', type: 'passive', maxLevel: 10, desc: (lvl) => `攻速 +10%`, apply: (p, lvl) => p.attackCooldown *= Math.pow(0.96, lvl) },
     'vitality': { id: 'vitality', name: '强壮', type: 'passive', maxLevel: 10, desc: (lvl) => `最大生命 +30`, apply: (p, lvl) => { p.maxHp += 30 * lvl; } },
     'split_shot': { id: 'split_shot', name: '分裂箭', type: 'passive', maxLevel: 5, desc: (lvl) => `普攻额外发射 ${lvl} 支箭矢 (50%伤害)`, apply: (p, lvl) => p.splitShotCount = lvl },
-    'poison_nova': { id: 'poison_nova', name: '剧毒新星', type: 'active', maxLevel: 5, cooldown: 5, desc: (lvl) => `释放毒圈，每0.5秒造成 ${10 + lvl * 5} 伤害`, onActivate: (game, lvl) => game.createAoE(game.player.x, game.player.y, 150 + lvl * 20, 3, 10 + lvl * 5, '#9C27B0') },
-    'blinding_dart': { id: 'blinding_dart', name: '致盲吹箭', type: 'active', maxLevel: 5, cooldown: 3, desc: (lvl) => `向最近敌人发射致盲毒镖，造成 ${30 + lvl * 10} 伤害`, onActivate: (game, lvl) => {
-        const target = game.findNearestEnemy(game.player.x, game.player.y, 400);
-        if (target) game.projectiles.push(new Projectile(game, game.player.x, game.player.y, target, { damage: 30 + lvl * 10, color: '#00FF00', speed: 600, type: 'dart' }));
-    }},
-    'mushroom_trap': { id: 'mushroom_trap', name: '种蘑菇', type: 'active', maxLevel: 5, cooldown: 4, desc: (lvl) => `原地种植隐形蘑菇，爆炸造成 ${50 + lvl * 20} 伤害并减速`, onActivate: (game, lvl) => {
-        game.createMushroom(game.player.x, game.player.y, 50 + lvl * 20);
-    }}
+    'poison_nova': {
+        id: 'poison_nova',
+        name: '剧毒新星',
+        type: 'active',
+        maxLevel: 5,
+        cooldown: 5,
+        getParams: (game, lvl, caster) => {
+            const rawCd = Math.max(1.8, 5.2 - 0.55 * lvl);
+            const cooldown = Math.max(0.6, rawCd * (1 - ((caster && caster.cdr) || 0)));
+            const radius = 140 + lvl * 22;
+            const duration = 2.6 + (lvl >= 3 ? 1.2 : 0);
+            const dmgPerTick = 8 + lvl * 6;
+            const tickInterval = (lvl >= 4 ? 0.35 : 0.5);
+            const followPlayer = (lvl >= 5);
+            return { cooldown, radius, duration, dmgPerTick, tickInterval, followPlayer };
+        },
+        desc: (lvl) => {
+            const cd = Math.max(1.8, 5.2 - 0.55 * lvl);
+            const r = 140 + lvl * 22;
+            const dur = 2.6 + (lvl >= 3 ? 1.2 : 0);
+            const dmg = 8 + lvl * 6;
+            const tick = (lvl >= 4 ? 0.35 : 0.5);
+            const mech = [
+                (lvl >= 3 ? 'Lv.3+: 持续时间提升' : ''),
+                (lvl >= 4 ? 'Lv.4+: 毒伤跳数更快' : ''),
+                (lvl >= 5 ? 'Lv.5: 毒圈跟随自身移动' : ''),
+            ].filter(Boolean).join('；');
+            return `释放毒圈：半径 ${r}，持续 ${dur.toFixed(1)}s，每 ${tick}s 造成 ${dmg} 伤害。CD≈${cd.toFixed(1)}s` + (mech ? `\n${mech}` : '');
+        },
+        onActivate: (game, lvl, params) => {
+            const p = params || (SKILLS['poison_nova'].getParams ? SKILLS['poison_nova'].getParams(game, lvl, game.player) : null);
+            const x = game.player.x, y = game.player.y;
+            game.createAoE(x, y, p.radius, p.duration, p.dmgPerTick, 'rgba(156, 39, 176, 0.35)', 'enemies', {
+                tickInterval: p.tickInterval,
+                follow: p.followPlayer ? 'player' : null
+            });
+        }
+    },
+    'blinding_dart': {
+        id: 'blinding_dart',
+        name: '致盲吹箭',
+        type: 'active',
+        maxLevel: 5,
+        cooldown: 3,
+        getParams: (game, lvl, caster) => {
+            const rawCd = Math.max(1.2, 3.2 - 0.35 * lvl);
+            const cooldown = Math.max(0.55, rawCd * (1 - ((caster && caster.cdr) || 0)));
+            const range = 360 + lvl * 80;
+            const damage = 22 + lvl * 12;
+            const stunDuration = Math.min(2.2, 0.7 + lvl * 0.22);
+            const shots = (lvl >= 5 ? 2 : 1);
+            return { cooldown, range, damage, stunDuration, shots };
+        },
+        desc: (lvl) => {
+            const cd = Math.max(1.2, 3.2 - 0.35 * lvl);
+            const range = 360 + lvl * 80;
+            const dmg = 22 + lvl * 12;
+            const stun = Math.min(2.2, 0.7 + lvl * 0.22);
+            const mech = [
+                `射程 ${range}`,
+                (lvl >= 5 ? 'Lv.5: 同时攻击 2 个目标' : ''),
+                (lvl >= 3 ? `眩晕≈${stun.toFixed(1)}s` : ''),
+            ].filter(Boolean).join('；');
+            return `向最近敌人发射吹箭，造成 ${dmg} 伤害。CD≈${cd.toFixed(1)}s\n${mech}`;
+        },
+        onActivate: (game, lvl, params) => {
+            const p = params || (SKILLS['blinding_dart'].getParams ? SKILLS['blinding_dart'].getParams(game, lvl, game.player) : null);
+            const targets = game.findNearestEnemies(game.player.x, game.player.y, p.range, p.shots);
+            targets.forEach(t => {
+                game.projectiles.push(new Projectile(game, game.player.x, game.player.y, t, {
+                    damage: p.damage,
+                    color: '#00FF00',
+                    speed: 650,
+                    type: 'dart',
+                    radius: 4,
+                    stunDuration: p.stunDuration
+                }));
+            });
+        }
+    },
+    'mushroom_trap': {
+        id: 'mushroom_trap',
+        name: '种蘑菇',
+        type: 'active',
+        maxLevel: 5,
+        cooldown: 4,
+        getParams: (game, lvl, caster) => {
+            const rawCd = Math.max(1.4, 4.2 - 0.45 * lvl);
+            const cooldown = Math.max(0.65, rawCd * (1 - ((caster && caster.cdr) || 0)));
+            const damage = 40 + lvl * 22;
+            const count = (lvl >= 3 ? 2 : 1);
+            const triggerRadius = 26 + lvl * 5;
+            const aoeRadius = 100 + lvl * 10;
+            const armTime = (lvl >= 5 ? 0.15 : 1.0);
+            const stunDuration = (lvl >= 4 ? 2.2 : 1.5);
+            return { cooldown, damage, count, triggerRadius, aoeRadius, armTime, stunDuration };
+        },
+        desc: (lvl) => {
+            const cd = Math.max(1.4, 4.2 - 0.45 * lvl);
+            const dmg = 40 + lvl * 22;
+            const aoe = 100 + lvl * 10;
+            const count = (lvl >= 3 ? 2 : 1);
+            const mech = [
+                `爆炸半径 ${aoe}`,
+                (lvl >= 3 ? `Lv.3+: 一次种 ${count} 个` : ''),
+                (lvl >= 4 ? 'Lv.4+: 控制更强' : ''),
+                (lvl >= 5 ? 'Lv.5: 几乎瞬间武装' : ''),
+            ].filter(Boolean).join('；');
+            return `原地种植蘑菇，触发后爆炸造成 ${dmg} 伤害。CD≈${cd.toFixed(1)}s\n${mech}`;
+        },
+        onActivate: (game, lvl, params) => {
+            const p = params || (SKILLS['mushroom_trap'].getParams ? SKILLS['mushroom_trap'].getParams(game, lvl, game.player) : null);
+            for (let i = 0; i < p.count; i++) {
+                const ox = (Math.random() - 0.5) * 40;
+                const oy = (Math.random() - 0.5) * 40;
+                game.createMushroom(game.player.x + ox, game.player.y + oy, p.damage, {
+                    triggerRadius: p.triggerRadius,
+                    aoeRadius: p.aoeRadius,
+                    armTime: p.armTime,
+                    stunDuration: p.stunDuration
+                });
+            }
+        }
+    }
 };
 
 const ITEMS = [
@@ -128,6 +244,7 @@ class Projectile {
         this.type = options.type || 'normal';
         this.isEnemy = options.isEnemy || false;
         this.onHitPlayer = options.onHitPlayer;
+        this.stunDuration = options.stunDuration;
         this.markedForDeletion = false;
 
         let angle = options.angle;
@@ -150,7 +267,7 @@ class Projectile {
                 if (checkCollision(this, e)) {
                     e.takeDamage(this.damage);
                     this.markedForDeletion = true;
-                    if (this.type === 'dart') { e.stunned = 1.0; }
+                    if (this.type === 'dart') { e.stunned = Math.max(e.stunned || 0, this.stunDuration || 1.0); }
                     break;
                 }
             }
@@ -170,18 +287,21 @@ class Mushroom {
         this.x = x; this.y = y;
         this.damage = damage;
         this.radius = 15;
-        this.triggerRadius = 30;
+        this.triggerRadius = options.triggerRadius || 30;
+        this.aoeRadius = options.aoeRadius || 120;
         this.markedForDeletion = false;
         this.armTimer = 0;
         this.armed = false;
+        this.armTime = (options.armTime !== undefined ? options.armTime : 1.0);
         this.target = options.target || 'enemies'; // 'enemies' | 'player'
         this.slowOnExplode = options.slowOnExplode || null; // { duration, speedMul }
+        this.stunDuration = (options.stunDuration !== undefined ? options.stunDuration : 1.5);
     }
 
     update(dt) {
         if (!this.armed) {
             this.armTimer += dt;
-            if (this.armTimer > 1.0) this.armed = true;
+            if (this.armTimer > this.armTime) this.armed = true;
             return;
         }
 
@@ -204,16 +324,16 @@ class Mushroom {
     explode() {
         this.markedForDeletion = true;
         if (this.target === 'player') {
-            this.game.createAoE(this.x, this.y, 120, 0.6, this.damage, 'rgba(255, 80, 80, 0.55)', 'player');
+            this.game.createAoE(this.x, this.y, this.aoeRadius, 0.6, this.damage, 'rgba(255, 80, 80, 0.55)', 'player');
             if (this.slowOnExplode) {
                 this.game.applyPlayerSlow(this.slowOnExplode.duration, this.slowOnExplode.speedMul);
             }
         } else {
-            this.game.createAoE(this.x, this.y, 120, 0.5, this.damage, 'rgba(0, 255, 0, 0.7)', 'enemies');
+            this.game.createAoE(this.x, this.y, this.aoeRadius, 0.5, this.damage, 'rgba(0, 255, 0, 0.7)', 'enemies');
             // Slow enemies
             this.game.enemies.forEach(e => {
                 const dist = Math.sqrt((e.x - this.x) ** 2 + (e.y - this.y) ** 2);
-                if (dist < 120) e.stunned = 1.5; // Stun/Slow
+                if (dist < this.aoeRadius) e.stunned = Math.max(e.stunned || 0, this.stunDuration); // Stun/Slow
             });
         }
     }
@@ -633,8 +753,12 @@ class Player {
             if (SKILLS[id].type === 'active') {
                 if (!this.skillTimers[id]) this.skillTimers[id] = 0;
                 this.skillTimers[id] += dt;
-                if (this.skillTimers[id] >= SKILLS[id].cooldown) {
-                    SKILLS[id].onActivate(this.game, this.skills[id]);
+                const def = SKILLS[id];
+                const lvl = this.skills[id];
+                const params = def.getParams ? def.getParams(this.game, lvl, this) : { cooldown: def.cooldown };
+                const cd = (params && params.cooldown !== undefined) ? params.cooldown : def.cooldown;
+                if (this.skillTimers[id] >= cd) {
+                    def.onActivate(this.game, lvl, params);
                     this.skillTimers[id] = 0;
                 }
             }
@@ -1028,6 +1152,7 @@ class Game {
         this.updateHUDInventory();
         this.updateHUDWave();
         this.updateComboUI();
+        this.renderSkillPanel();
     }
 
     nextStage() {
@@ -1344,26 +1469,107 @@ class Game {
         return n;
     }
 
+    findNearestEnemies(x, y, range, count) {
+        const list = [];
+        const r = range || 99999;
+        this.enemies.forEach(e => {
+            const d = Math.sqrt((e.x - x) ** 2 + (e.y - y) ** 2);
+            if (d <= r) list.push({ e, d });
+        });
+        list.sort((a, b) => a.d - b.d);
+        return list.slice(0, Math.max(1, count || 1)).map(o => o.e);
+    }
+
+    renderSkillPanel() {
+        const el = document.getElementById('active-skills');
+        if (!el || !this.player) return;
+
+        const p = this.player;
+        const ids = Object.keys(p.skills || {});
+        if (ids.length === 0) {
+            el.innerHTML = '';
+            return;
+        }
+
+        const entries = ids
+            .map(id => ({ id, lvl: p.skills[id], def: SKILLS[id] }))
+            .filter(s => s.def)
+            .sort((a, b) => (a.def.type === 'active' ? -1 : 1) - (b.def.type === 'active' ? -1 : 1));
+
+        const fmt = (sec) => {
+            if (sec <= 0) return '就绪';
+            if (sec < 10) return `${sec.toFixed(1)}s`;
+            return `${Math.ceil(sec)}s`;
+        };
+
+        let html = `<div class="skill-panel-title">技能</div>`;
+        entries.forEach(s => {
+            const isActive = s.def.type === 'active';
+            let cd = 0, rem = 0, pct = 0, extra = '';
+            if (isActive) {
+                const params = (s.def.getParams ? s.def.getParams(this, s.lvl, p) : { cooldown: s.def.cooldown });
+                cd = params.cooldown || s.def.cooldown || 0;
+                const t = p.skillTimers[s.id] || 0;
+                rem = Math.max(0, cd - t);
+                pct = (cd > 0 ? Math.min(1, t / cd) : 0);
+                extra = `<div class="skill-cd">CD: ${fmt(rem)}<div class="skill-cd-bar"><div class="skill-cd-fill" style="width:${(pct * 100).toFixed(1)}%"></div></div></div>`;
+            } else {
+                extra = `<div class="skill-passive">被动</div>`;
+            }
+            const tip = (s.def.desc ? String(s.def.desc(s.lvl)).replaceAll('"', '&quot;') : '');
+            html += `
+                <div class="skill-row ${isActive ? 'active' : 'passive'}" title="${tip}">
+                    <div class="skill-name">${s.def.name}</div>
+                    <div class="skill-lvl">Lv.${s.lvl}</div>
+                    ${extra}
+                </div>
+            `;
+        });
+        el.innerHTML = html;
+    }
+
     createAoE(x, y, r, d, dmg, c) {
         // target: 'enemies' | 'player' | 'both'
         const g = this;
-        const target = arguments[6] || 'enemies';
+        let target = 'enemies';
+        let opts = {};
+        const arg6 = arguments[6];
+        const arg7 = arguments[7];
+        if (typeof arg6 === 'string') {
+            target = arg6 || 'enemies';
+            opts = (arg7 && typeof arg7 === 'object') ? arg7 : {};
+        } else if (arg6 && typeof arg6 === 'object') {
+            opts = arg6;
+            target = opts.target || 'enemies';
+        } else {
+            target = 'enemies';
+            opts = {};
+        }
+        const tickInterval = Math.max(0.05, opts.tickInterval || 0.5);
         this.aoeZones.push({
             x, y, r, d, dmg, c, t: 0, tick: 0,
             update: function (dt) {
                 this.t += dt; this.tick += dt;
                 if (this.t >= this.d) this.markedForDeletion = true;
-                if (this.tick >= 0.5) {
+                if (opts.follow === 'player' && g.player) {
+                    this.x = g.player.x;
+                    this.y = g.player.y;
+                }
+                if (this.tick >= tickInterval) {
                     this.tick = 0;
                     if (target === 'enemies' || target === 'both') {
                         g.enemies.forEach(e => {
-                            if (Math.sqrt((e.x - this.x) ** 2 + (e.y - this.y) ** 2) < this.r + e.radius) e.takeDamage(this.dmg);
+                            if (Math.sqrt((e.x - this.x) ** 2 + (e.y - this.y) ** 2) < this.r + e.radius) {
+                                e.takeDamage(this.dmg);
+                                if (opts.onTickEnemy) opts.onTickEnemy(g, e, this);
+                            }
                         });
                     }
                     if (target === 'player' || target === 'both') {
                         const p = g.player;
                         if (p && Math.sqrt((p.x - this.x) ** 2 + (p.y - this.y) ** 2) < this.r + p.radius) {
                             p.takeDamage(this.dmg);
+                            if (opts.onTickPlayer) opts.onTickPlayer(g, p, this);
                         }
                     }
                 }
@@ -1559,6 +1765,7 @@ class Game {
         const pct = (this.player.exp / this.player.expToNextLevel) * 100;
         document.getElementById('exp-bar').style.width = `${pct}%`;
         document.getElementById('level-badge').innerText = this.player.level;
+        this.renderSkillPanel();
     }
 
     updateHUDWave() {
