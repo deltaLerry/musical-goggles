@@ -438,8 +438,9 @@ class Enemy {
         
         // Scaling
         // Enemy level scales with stage/wave AND player level.
-        // stage 1 wave 1 => lvl 1, stage 1 wave 10 => lvl 10, stage 2 wave 1 => lvl 11 ...
-        const progressLevel = Math.max(1, (game.stage - 1) * 10 + game.wave);
+        // stage 1 wave 1 => lvl 1, stage 1 wave N => lvl N, stage 2 wave 1 => lvl N+1 ...
+        const wavesTotal = Math.max(1, game.wavesTotal || 10);
+        const progressLevel = Math.max(1, (game.stage - 1) * wavesTotal + game.wave);
         const playerLevel = game.player ? game.player.level : 1;
         // If player over-levels early, enemies catch up.
         const playerDrivenLevel = Math.max(1, 1 + Math.floor((playerLevel - 1) * 0.9));
@@ -880,9 +881,15 @@ class Game {
         // World (bigger than viewport). Will be initialized on startGame().
         this.worldWidth = Math.max(2400, this.width * 4);
         this.worldHeight = Math.max(2400, this.height * 4);
-        // Camera top-left in world space
+        // Camera (top-left in world space)
         this.cameraX = 0;
         this.cameraY = 0;
+        // Camera tuning: "deadzone" reduces dizziness by keeping camera still until player nears edge.
+        // Values are viewport margins (0~0.45). Larger => camera moves less often.
+        this.cameraMarginX = 0.28;
+        this.cameraMarginY = 0.28;
+        // Smooth follow speed (higher => snappier). Only matters when camera needs to move.
+        this.cameraSmooth = 14;
 
         this.input = new InputHandler();
         this.setupMobileControls();
@@ -1150,9 +1157,12 @@ class Game {
 
         this.stage = 1;
         this.wave = 1;
+        // 每关波数：提高波次数量，减少“慢热 -> 突刺”的体感
+        this.wavesTotal = 15;
         this.gameTime = 0;
         this.waveTimer = 0;
-        this.waveDuration = 20;
+        // 单波时长略缩短，让节奏更连贯（总时长≈15*18=270s 再加Boss）
+        this.waveDuration = 18;
 
         this.comboCount = 0;
         this.comboTimer = 0;
@@ -1163,6 +1173,13 @@ class Game {
         this.worldWidth = Math.max(2400, this.width * 4);
         this.worldHeight = Math.max(2400, this.height * 4);
         this.player = new Player(this);
+
+        // Reset camera near player so the first frame doesn't "jump".
+        const scale = (this.mobileControls && this.mobileControls.isMobile) ? 0.86 : 1.0;
+        const viewWorldW = this.width / scale;
+        const viewWorldH = this.height / scale;
+        this.cameraX = Math.max(0, Math.min(this.worldWidth - viewWorldW, this.player.x - viewWorldW / 2));
+        this.cameraY = Math.max(0, Math.min(this.worldHeight - viewWorldH, this.player.y - viewWorldH / 2));
         
         // Apply Bonus Skill
         if (this.bonusSkillId) {
@@ -1173,6 +1190,12 @@ class Game {
         this.enemies = []; this.projectiles = []; this.expOrbs = []; 
         this.aoeZones = []; this.mushrooms = []; this.potions = [];
         this.spawnTimer = 0; 
+        // 刷怪预算：按 dt 累积，连续刷，避免“到点一坨”
+        this.spawnBudget = 0;
+        // 平滑强度（用于生成刷怪速度/数量）：避免瞬间跳变
+        this.intensitySmooth = 0;
+        this.bossActive = false;
+        this.bossRef = null;
         
         this.lastTime = performance.now();
         this.updateHUDInventory();
@@ -1185,6 +1208,8 @@ class Game {
         this.stage++;
         this.wave = 1;
         this.waveTimer = 0;
+        this.spawnTimer = 0;
+        this.spawnBudget = 0;
         document.getElementById('stage-clear-modal').classList.add('hidden');
         this.state = 'PLAYING';
         this.updateMobileControlsVisibility();
@@ -1250,7 +1275,7 @@ class Game {
             }
         }
 
-        if (this.wave < 10) {
+        if (this.wave < this.wavesTotal) {
             this.waveTimer += dt;
             if (this.waveTimer >= this.waveDuration) {
                 this.wave++;
@@ -1259,17 +1284,20 @@ class Game {
             }
             
             // Spawn Rate Logic
-            this.spawnTimer += dt;
-            let spawnRate = this.getDynamicSpawnRate();
-            const spawnCount = this.getDynamicSpawnCount();
             const maxEnemies = this.getDynamicMaxEnemies();
-
-            if (this.spawnTimer > spawnRate) {
-                for (let i = 0; i < spawnCount; i++) {
-                    if (this.enemies.length >= maxEnemies) break;
+            const perSec = this.getDynamicSpawnPerSecond(dt);
+            // 按时间累积预算，逐个刷怪，打散“突然一大波”
+            if (this.enemies.length < maxEnemies) {
+                this.spawnBudget += perSec * dt;
+                // 安全上限：避免后台切换导致一次性补刷过多
+                this.spawnBudget = Math.min(this.spawnBudget, 18);
+                while (this.spawnBudget >= 1 && this.enemies.length < maxEnemies) {
                     this.spawnEnemy();
+                    this.spawnBudget -= 1;
                 }
-                this.spawnTimer = 0;
+            } else {
+                // 满怪时也别无限攒预算
+                this.spawnBudget = Math.min(this.spawnBudget, 2);
             }
         } else {
             if (!this.bossActive) {
@@ -1315,6 +1343,51 @@ class Game {
         return rate;
     }
 
+    // 新：用“每秒刷怪数”替代“每隔N秒批量刷怪”，并做平滑强度曲线
+    getDynamicSpawnPerSecond(dt) {
+        if (this.frenzyActive) return 10; // 爽刷阶段
+
+        const p = this.player;
+        const wavesTotal = Math.max(1, this.wavesTotal || 10);
+
+        // 关内进度（0~1）：stage 内随波次推进 + 波内时间推进
+        const waveIdx0 = Math.max(0, (this.wave || 1) - 1);
+        const waveProgress = (this.waveTimer || 0) / Math.max(0.01, this.waveDuration || 1);
+        const runProgress = (waveIdx0 + waveProgress) / wavesTotal;
+
+        // 基础强度：随关卡递增，前期略快起步，后期更稳
+        // 使用 smoothstep 做曲线，避免突刺
+        const smoothstep = (x) => {
+            const t = Math.max(0, Math.min(1, x));
+            return t * t * (3 - 2 * t);
+        };
+        const prog = smoothstep(runProgress);
+        const stageF = 1 + (this.stage - 1) * 0.18;
+
+        // 玩家强度会影响刷怪，但要“缓慢跟随”，不允许瞬间跳变
+        const dps = p ? (p.damage / Math.max(0.12, p.attackCooldown)) : 40;
+        const power = p ? ((p.level * 0.55) + (dps / 70) + (p.maxHp / 260)) : 1;
+        const targetIntensity = (0.55 + prog * 1.35) * stageF * (1 + Math.min(2.2, power * 0.06));
+
+        // 指数平滑（时间常数约 2s）：消除升级/拿装备带来的瞬时爆发
+        const alpha = 1 - Math.pow(0.001, (dt || 0.016) / 2.0);
+        this.intensitySmooth = (this.intensitySmooth || targetIntensity) + (targetIntensity - (this.intensitySmooth || targetIntensity)) * alpha;
+
+        // 把强度映射到 “每秒刷怪数”
+        // 早期：~0.8-1.3 只/s；中后期：~2-4+ 只/s（受 maxEnemies 限制）
+        const base = 0.85;
+        const perSecRaw = base + this.intensitySmooth * 1.15;
+
+        // 诉求：前 30 秒更快起怪，但仍然平滑、不突刺
+        // 用 smoothstep 做一个从 1.28 -> 1.0 的早期加速倍率（30s 内衰减）
+        const t30 = smoothstep((this.gameTime || 0) / 30);
+        const earlyBoost = 1 + (1 - t30) * 0.28;
+
+        // 微调：每第 5 波略增压，但不做“休息波/爆发波”的硬切
+        const wavePulse = ((this.wave % 5) === 0) ? 1.08 : 1.0;
+        return Math.max(0.6, Math.min(6.8, perSecRaw * earlyBoost * wavePulse));
+    }
+
     getDynamicSpawnCount() {
         const p = this.player;
         if (!p) return 1;
@@ -1334,10 +1407,9 @@ class Game {
     }
 
     getDifficultyFactor() {
-        // Sine wave for natural difficulty oscillation (Period ~20s)
-        // Offset by 1 to make it 0 to 2, then subtract 1 to get -1 to 1, 
-        // but we start at the "easy" part of the cycle.
-        return Math.sin(this.gameTime / 4 - Math.PI / 2); 
+        // Legacy：保留接口避免大量改动，但不再用于刷怪强度的核心决策。
+        // 如仍有逻辑调用该函数，返回 0 表示不做正弦波“忽强忽弱”。
+        return 0;
     }
 
     spawnEnemy() {
@@ -1804,6 +1876,8 @@ class Game {
     updateHUDWave() {
         document.getElementById('stage-display').innerText = this.stage;
         document.getElementById('wave-display').innerText = this.wave;
+        const totalEl = document.getElementById('wave-total');
+        if (totalEl) totalEl.innerText = (this.wavesTotal || 10);
     }
 
     updateHUDInventory() {
@@ -1824,22 +1898,47 @@ class Game {
         // Slight zoom-out on mobile so the screen feels less cramped.
         const scale = (this.mobileControls && this.mobileControls.isMobile) ? 0.86 : 1.0;
 
-        // Camera follows player (world space -> screen space)
+        // Camera with deadzone: reduce motion sickness by not moving the camera all the time.
         const p = this.player;
         const viewWorldW = this.width / scale;
         const viewWorldH = this.height / scale;
-        const halfW = viewWorldW / 2;
-        const halfH = viewWorldH / 2;
-        let camX = 0, camY = 0;
+
+        // Compute target camera based on keeping player within deadzone rectangle.
+        let targetCamX = this.cameraX || 0;
+        let targetCamY = this.cameraY || 0;
+
         if (p) {
-            camX = p.x - halfW;
-            camY = p.y - halfH;
+            const marginX = Math.min(viewWorldW * 0.45, Math.max(60, viewWorldW * this.cameraMarginX));
+            const marginY = Math.min(viewWorldH * 0.45, Math.max(60, viewWorldH * this.cameraMarginY));
+            const left = targetCamX + marginX;
+            const right = targetCamX + (viewWorldW - marginX);
+            const top = targetCamY + marginY;
+            const bottom = targetCamY + (viewWorldH - marginY);
+
+            if (p.x < left) targetCamX = p.x - marginX;
+            else if (p.x > right) targetCamX = p.x - (viewWorldW - marginX);
+
+            if (p.y < top) targetCamY = p.y - marginY;
+            else if (p.y > bottom) targetCamY = p.y - (viewWorldH - marginY);
         }
-        // Clamp camera so it doesn't show outside the world
-        camX = Math.max(0, Math.min(this.worldWidth - viewWorldW, camX));
-        camY = Math.max(0, Math.min(this.worldHeight - viewWorldH, camY));
-        this.cameraX = camX;
-        this.cameraY = camY;
+
+        // Clamp target camera so it doesn't show outside the world
+        targetCamX = Math.max(0, Math.min(this.worldWidth - viewWorldW, targetCamX));
+        targetCamY = Math.max(0, Math.min(this.worldHeight - viewWorldH, targetCamY));
+
+        // Smoothly approach target only when needed (dt from last frame).
+        // We don't pass dt into draw(), so approximate using frame time.
+        const now = performance.now();
+        const last = this._lastDrawTs || now;
+        this._lastDrawTs = now;
+        const dt = Math.min(0.05, Math.max(0.001, (now - last) / 1000));
+        const t = 1 - Math.exp(-dt * this.cameraSmooth);
+
+        this.cameraX = this.cameraX + (targetCamX - this.cameraX) * t;
+        this.cameraY = this.cameraY + (targetCamY - this.cameraY) * t;
+
+        const camX = this.cameraX;
+        const camY = this.cameraY;
 
         this.ctx.save();
         this.ctx.scale(scale, scale);

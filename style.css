@@ -25,10 +25,11 @@ body {
 
 #joystick-zone {
     position: absolute;
-    right: 0;
+    left: 50%;
     bottom: 0;
-    width: 55vw;
-    height: 100vh;
+    width: 85vw;
+    height: 55vh;
+    transform: translateX(-50%);
     pointer-events: auto;
     touch-action: none;
     background: transparent;
@@ -39,9 +40,9 @@ body {
     width: 200px;
     height: 200px;
     border-radius: 50%;
-    right: 26px;
+    left: 50%;
     bottom: 26px;
-    transform: none;
+    transform: translateX(-50%);
     background: radial-gradient(circle, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.2) 100%);
     border: 2px solid rgba(255,255,255,0.35);
     box-shadow: 0 10px 30px rgba(0,0,0,0.35);
@@ -77,14 +78,17 @@ body {
     #exp-bar-container { width: 70%; }
 
     #joystick-zone {
-        width: 40vw;
-        height: 100vh;
+        width: 70vw;
+        height: 70vh;
+        left: 50%;
+        transform: translateX(-50%);
     }
     #joystick {
         width: 180px;
         height: 180px;
-        right: 18px;
+        left: 50%;
         bottom: 18px;
+        transform: translateX(-50%);
     }
     #joystick-knob {
         width: 84px;
