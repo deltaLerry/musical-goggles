@@ -1961,12 +1961,18 @@ class Game {
             const t = p.skillTimers[s.id] || 0;
             const pct = (cd > 0 ? Math.min(1, Math.max(0, t / cd)) : 1); // 0~1，越大越接近“转好”
             const dashOffset = (1 - pct) * C;
+            const rem = Math.max(0, cd - t);
+            const ready = rem <= 0.001;
+
+            // CD 环颜色：红(0) -> 绿(120)
+            const hue = Math.round(120 * pct);
+            const ringColor = `hsl(${hue}, 90%, 55%)`;
 
             const label = (def.name && def.name.length > 0) ? def.name[0] : '?';
             const tip = safe(def.name) + ` (Lv.${lvl})\n` + safe(def.desc ? def.desc(lvl) : '');
 
             html += `
-                <div class="skill-icon" title="${tip}" style="--pct:${(pct * 100).toFixed(1)}">
+                <div class="skill-icon ${ready ? 'ready' : ''}" title="${tip}" style="--pct:${(pct * 100).toFixed(1)}; --ring:${safe(ringColor)}">
                     <svg class="skill-ring" viewBox="0 0 36 36" aria-hidden="true">
                         <circle class="skill-ring-bg" cx="18" cy="18" r="${ringR}" />
                         <circle class="skill-ring-fg" cx="18" cy="18" r="${ringR}"

@@ -218,10 +218,18 @@ body {
 
 .skill-ring-fg {
     fill: none;
-    stroke: rgba(255, 215, 0, 0.95);
+    stroke: var(--ring, rgba(255, 215, 0, 0.95));
     stroke-width: 4;
     stroke-linecap: round;
     transition: stroke-dashoffset 0.08s linear, stroke 0.12s ease;
+}
+
+/* CD 好了：轻微发光提示 */
+.skill-icon.ready {
+    box-shadow:
+        0 10px 22px rgba(0,0,0,0.30),
+        0 0 18px rgba(0, 230, 118, 0.25);
+    border-color: rgba(0, 230, 118, 0.35);
 }
 
 .skill-label {
