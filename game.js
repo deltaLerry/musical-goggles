@@ -273,7 +273,12 @@ class Projectile {
             }
         }
 
-        if (this.x < 0 || this.x > this.game.width || this.y < 0 || this.y > this.game.height) this.markedForDeletion = true;
+        // World bounds (not screen bounds)
+        const pad = 250;
+        if (
+            this.x < -pad || this.x > this.game.worldWidth + pad ||
+            this.y < -pad || this.y > this.game.worldHeight + pad
+        ) this.markedForDeletion = true;
     }
     draw(ctx) {
         ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
@@ -405,12 +410,18 @@ class Enemy {
         this.type = config.type;
         this.markedForDeletion = false;
         
-        // Spawn logic
-        let sx, sy; const p = 50; const side = Math.floor(Math.random() * 4);
-        if (side === 0) { sx = Math.random() * game.width; sy = -p; }
-        else if (side === 1) { sx = game.width + p; sy = Math.random() * game.height; }
-        else if (side === 2) { sx = Math.random() * game.width; sy = game.height + p; }
-        else { sx = -p; sy = Math.random() * game.height; }
+        // Spawn logic: spawn outside current viewport around player (world space)
+        const p = 220;
+        const viewR = Math.hypot(game.width, game.height) / 2;
+        const spawnDist = viewR + p + Math.random() * 220;
+        const ang = Math.random() * Math.PI * 2;
+        const px = (game.player ? game.player.x : game.worldWidth / 2);
+        const py = (game.player ? game.player.y : game.worldHeight / 2);
+        let sx = px + Math.cos(ang) * spawnDist;
+        let sy = py + Math.sin(ang) * spawnDist;
+        // Clamp to world bounds (+padding to avoid spawning "inside" walls)
+        sx = Math.max(p, Math.min(game.worldWidth - p, sx));
+        sy = Math.max(p, Math.min(game.worldHeight - p, sy));
         this.x = sx; this.y = sy;
 
         // Base Config
@@ -622,7 +633,8 @@ class Enemy {
 class Player {
     constructor(game) {
         this.game = game;
-        this.x = game.width / 2; this.y = game.height / 2;
+        // World center spawn
+        this.x = game.worldWidth / 2; this.y = game.worldHeight / 2;
         this.baseRadius = 20;
         this.radius = this.baseRadius;
         this.color = '#8BC34A';
@@ -741,8 +753,9 @@ class Player {
             const speedMul = Math.min(1, l);
             this.x += nx * effectiveSpeed * speedMul * dt;
             this.y += ny * effectiveSpeed * speedMul * dt;
-            this.x = Math.max(this.radius, Math.min(this.game.width - this.radius, this.x));
-            this.y = Math.max(this.radius, Math.min(this.game.height - this.radius, this.y));
+            // Clamp to world bounds (not screen bounds)
+            this.x = Math.max(this.radius, Math.min(this.game.worldWidth - this.radius, this.x));
+            this.y = Math.max(this.radius, Math.min(this.game.worldHeight - this.radius, this.y));
         }
 
         this.attackTimer += dt;
@@ -863,6 +876,13 @@ class Game {
         this.ctx = this.canvas.getContext('2d');
         this.resize();
         window.addEventListener('resize', () => this.resize());
+
+        // World (bigger than viewport). Will be initialized on startGame().
+        this.worldWidth = Math.max(2400, this.width * 4);
+        this.worldHeight = Math.max(2400, this.height * 4);
+        // Camera top-left in world space
+        this.cameraX = 0;
+        this.cameraY = 0;
 
         this.input = new InputHandler();
         this.setupMobileControls();
@@ -1090,6 +1110,9 @@ class Game {
     resize() {
         this.width = this.canvas.width = window.innerWidth;
         this.height = this.canvas.height = window.innerHeight;
+        // Keep world at least 4x viewport so mobile doesn't feel cramped.
+        this.worldWidth = Math.max(this.worldWidth || 0, 2400, this.width * 4);
+        this.worldHeight = Math.max(this.worldHeight || 0, 2400, this.height * 4);
     }
     
     openShop() {
@@ -1136,6 +1159,9 @@ class Game {
         this.frenzyActive = false;
         this.frenzyTimer = 0;
 
+        // (Re)initialize a big world each run so you can roam on mobile comfortably.
+        this.worldWidth = Math.max(2400, this.width * 4);
+        this.worldHeight = Math.max(2400, this.height * 4);
         this.player = new Player(this);
         
         // Apply Bonus Skill
@@ -1794,8 +1820,33 @@ class Game {
 
     draw() {
         this.ctx.clearRect(0, 0, this.width, this.height);
-        this.ctx.fillStyle = '#2E7D32'; 
-        this.ctx.fillRect(0, 0, this.width, this.height);
+
+        // Slight zoom-out on mobile so the screen feels less cramped.
+        const scale = (this.mobileControls && this.mobileControls.isMobile) ? 0.86 : 1.0;
+
+        // Camera follows player (world space -> screen space)
+        const p = this.player;
+        const viewWorldW = this.width / scale;
+        const viewWorldH = this.height / scale;
+        const halfW = viewWorldW / 2;
+        const halfH = viewWorldH / 2;
+        let camX = 0, camY = 0;
+        if (p) {
+            camX = p.x - halfW;
+            camY = p.y - halfH;
+        }
+        // Clamp camera so it doesn't show outside the world
+        camX = Math.max(0, Math.min(this.worldWidth - viewWorldW, camX));
+        camY = Math.max(0, Math.min(this.worldHeight - viewWorldH, camY));
+        this.cameraX = camX;
+        this.cameraY = camY;
+
+        this.ctx.save();
+        this.ctx.scale(scale, scale);
+        this.ctx.translate(-camX, -camY);
+
+        // Background: draw only the visible area (big map feeling)
+        this.drawBackground(this.ctx, camX, camY, viewWorldW, viewWorldH);
 
         this.mushrooms.forEach(m => m.draw(this.ctx));
         this.potions.forEach(p => p.draw(this.ctx));
@@ -1804,6 +1855,55 @@ class Game {
         this.enemies.forEach(e => e.draw(this.ctx));
         this.projectiles.forEach(p => p.draw(this.ctx));
         if (this.player) this.player.draw(this.ctx);
+
+        this.ctx.restore();
+    }
+
+    drawBackground(ctx, viewX, viewY, viewW, viewH) {
+        // Base grass
+        ctx.fillStyle = '#2E7D32';
+        ctx.fillRect(viewX, viewY, viewW, viewH);
+
+        // Subtle grid for motion reference (helps mobile positioning)
+        const grid = 120;
+        const minor = 30;
+
+        // Minor
+        ctx.strokeStyle = 'rgba(0,0,0,0.06)';
+        ctx.lineWidth = 1;
+        const startX1 = Math.floor(viewX / minor) * minor;
+        const startY1 = Math.floor(viewY / minor) * minor;
+        ctx.beginPath();
+        for (let x = startX1; x <= viewX + viewW; x += minor) {
+            ctx.moveTo(x, viewY);
+            ctx.lineTo(x, viewY + viewH);
+        }
+        for (let y = startY1; y <= viewY + viewH; y += minor) {
+            ctx.moveTo(viewX, y);
+            ctx.lineTo(viewX + viewW, y);
+        }
+        ctx.stroke();
+
+        // Major
+        ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+        ctx.lineWidth = 2;
+        const startX2 = Math.floor(viewX / grid) * grid;
+        const startY2 = Math.floor(viewY / grid) * grid;
+        ctx.beginPath();
+        for (let x = startX2; x <= viewX + viewW; x += grid) {
+            ctx.moveTo(x, viewY);
+            ctx.lineTo(x, viewY + viewH);
+        }
+        for (let y = startY2; y <= viewY + viewH; y += grid) {
+            ctx.moveTo(viewX, y);
+            ctx.lineTo(viewX + viewW, y);
+        }
+        ctx.stroke();
+
+        // World border hint
+        ctx.strokeStyle = 'rgba(255, 215, 0, 0.12)';
+        ctx.lineWidth = 6;
+        ctx.strokeRect(0, 0, this.worldWidth, this.worldHeight);
     }
 
     loop(ts) {
