@@ -25,7 +25,7 @@ body {
 
 #joystick-zone {
     position: absolute;
-    left: 0;
+    right: 0;
     bottom: 0;
     width: 65vw;
     height: 80vh;
@@ -36,12 +36,12 @@ body {
 
 #joystick {
     position: absolute;
-    width: 140px;
-    height: 140px;
+    width: 170px;
+    height: 170px;
     border-radius: 50%;
-    left: 90px;
+    right: 110px;
     bottom: 120px;
-    transform: translate(-50%, -50%);
+    transform: translate(50%, 50%);
     background: radial-gradient(circle, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.2) 100%);
     border: 2px solid rgba(255,255,255,0.35);
     box-shadow: 0 10px 30px rgba(0,0,0,0.35);
@@ -59,13 +59,37 @@ body {
     position: absolute;
     left: 50%;
     top: 50%;
-    width: 64px;
-    height: 64px;
+    width: 78px;
+    height: 78px;
     border-radius: 50%;
     transform: translate(-50%, -50%);
     background: radial-gradient(circle, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.12) 70%, rgba(0,0,0,0.35) 100%);
     border: 2px solid rgba(255,255,255,0.5);
     box-shadow: 0 8px 20px rgba(0,0,0,0.35);
+}
+
+/* Mobile landscape tuning */
+@media (orientation: landscape) and (max-width: 1024px) {
+    #hud { padding: 8px; }
+    #stats-summary { font-size: 14px; gap: 10px; }
+    #game-messages { top: 70px; right: 12px; }
+    #boss-hp-container { top: 48px; width: 320px; }
+    #exp-bar-container { width: 70%; }
+
+    #joystick-zone {
+        width: 45vw;
+        height: 100vh;
+    }
+    #joystick {
+        width: 160px;
+        height: 160px;
+        right: 95px;
+        bottom: 95px;
+    }
+    #joystick-knob {
+        width: 72px;
+        height: 72px;
+    }
 }
 
 /* Overlays */

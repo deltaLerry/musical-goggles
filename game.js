@@ -795,7 +795,8 @@ class Game {
         let cx = 0, cy = 0;
 
         // Smaller deadzone + slight response curve for more "snappy" feel on mobile.
-        const deadZone = 0.06;
+        const deadZone = 0.03;
+        const responseExp = 0.62; // smaller => more sensitive for small drags
 
         const getMaxR = () => {
             const jr = joystick.clientWidth / 2;
@@ -805,19 +806,10 @@ class Game {
 
         const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
-        const clampCenterToViewport = (x, y) => {
-            // Keep the joystick fully on-screen.
-            const jr = joystick.clientWidth / 2;
-            const m = Math.max(10, jr + 8);
-            const nx = clamp(x, m, window.innerWidth - m);
-            const ny = clamp(y, m, window.innerHeight - m);
-            return { x: nx, y: ny };
-        };
-
-        const setJoystickCenter = (x, y) => {
-            joystick.style.left = `${x}px`;
-            joystick.style.top = `${y}px`;
-            joystick.style.bottom = 'auto';
+        const syncCenterFromElement = () => {
+            const r = joystick.getBoundingClientRect();
+            cx = r.left + r.width / 2;
+            cy = r.top + r.height / 2;
         };
 
         const setKnob = (x, y) => {
@@ -834,7 +826,7 @@ class Game {
             } else {
                 // Normalize + apply curve so small drags feel more responsive.
                 const n = Math.min(1, len);
-                const scaled = Math.pow(n, 0.78); // <1 => boost small inputs
+                const scaled = Math.pow(n, responseExp); // <1 => boost small inputs
                 const inv = 1 / (len || 1);
                 ax = ax * inv * scaled;
                 ay = ay * inv * scaled;
@@ -842,36 +834,38 @@ class Game {
             this.input.setMoveAxis(ax, ay);
         };
 
-        const onDown = (e) => {
-            // Only left-bottom zone triggers joystick. This is "跟随轮盘式"：按下即把轮盘中心放到手指处。
-            active = true;
-            pointerId = e.pointerId;
-            try { e.currentTarget.setPointerCapture(pointerId); } catch (_) { }
-
-            const c = clampCenterToViewport(e.clientX, e.clientY);
-            cx = c.x;
-            cy = c.y;
-            setJoystickCenter(cx, cy);
-            joystick.classList.add('active');
-            setKnob(0, 0);
-            this.input.setMoveAxis(0, 0);
-            e.preventDefault();
-        };
-
-        const onMove = (e) => {
-            if (!active || e.pointerId !== pointerId) return;
+        const offsetFromPoint = (x, y) => {
+            syncCenterFromElement();
             const maxR = getMaxR();
-
-            let ox = e.clientX - cx;
-            let oy = e.clientY - cy;
+            let ox = x - cx;
+            let oy = y - cy;
             const dist = Math.sqrt(ox * ox + oy * oy);
             if (dist > maxR) {
                 ox = (ox / dist) * maxR;
                 oy = (oy / dist) * maxR;
             }
+            return { ox, oy };
+        };
 
-            setKnob(ox, oy);
-            setAxisFromOffset(ox, oy);
+        const onDown = (e) => {
+            active = true;
+            pointerId = e.pointerId;
+            try { e.currentTarget.setPointerCapture(pointerId); } catch (_) { }
+
+            joystick.classList.add('active');
+
+            // Fixed joystick (right-bottom). On press, immediately set direction by finger position relative to center.
+            const o = offsetFromPoint(e.clientX, e.clientY);
+            setKnob(o.ox, o.oy);
+            setAxisFromOffset(o.ox, o.oy);
+            e.preventDefault();
+        };
+
+        const onMove = (e) => {
+            if (!active || e.pointerId !== pointerId) return;
+            const o = offsetFromPoint(e.clientX, e.clientY);
+            setKnob(o.ox, o.oy);
+            setAxisFromOffset(o.ox, o.oy);
             e.preventDefault();
         };
 
@@ -905,12 +899,11 @@ class Game {
             touchState.active = true;
             touchState.id = t.identifier;
             const p = touchToPoint(t);
-            const c = clampCenterToViewport(p.x, p.y);
-            cx = c.x; cy = c.y;
-            setJoystickCenter(cx, cy);
             joystick.classList.add('active');
-            setKnob(0, 0);
-            this.input.setMoveAxis(0, 0);
+
+            const o = offsetFromPoint(p.x, p.y);
+            setKnob(o.ox, o.oy);
+            setAxisFromOffset(o.ox, o.oy);
             ev.preventDefault();
         };
         const onTouchMove = (ev) => {
@@ -921,16 +914,9 @@ class Game {
             }
             if (!t) return;
             const p = touchToPoint(t);
-            const maxR = getMaxR();
-            let ox = p.x - cx;
-            let oy = p.y - cy;
-            const dist = Math.sqrt(ox * ox + oy * oy);
-            if (dist > maxR) {
-                ox = (ox / dist) * maxR;
-                oy = (oy / dist) * maxR;
-            }
-            setKnob(ox, oy);
-            setAxisFromOffset(ox, oy);
+            const o = offsetFromPoint(p.x, p.y);
+            setKnob(o.ox, o.oy);
+            setAxisFromOffset(o.ox, o.oy);
             ev.preventDefault();
         };
         const onTouchEnd = (ev) => {
@@ -954,6 +940,9 @@ class Game {
         window.addEventListener('touchmove', onTouchMove, { passive: false });
         window.addEventListener('touchend', onTouchEnd, { passive: false });
         window.addEventListener('touchcancel', onTouchEnd, { passive: false });
+
+        // Keep center accurate across orientation changes / resizes.
+        window.addEventListener('resize', () => syncCenterFromElement(), { passive: true });
     }
 
     updateMobileControlsVisibility() {
