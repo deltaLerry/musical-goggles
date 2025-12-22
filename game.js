@@ -1414,6 +1414,8 @@ class Game {
     }
 
     update(dt) {
+        // Expose dt for camera smoothing (used by draw())
+        this._dt = dt;
         this.gameTime += dt;
         this.player.update(dt);
         
@@ -2090,16 +2092,31 @@ class Game {
         targetCamX = Math.max(0, Math.min(this.worldWidth - viewWorldW, targetCamX));
         targetCamY = Math.max(0, Math.min(this.worldHeight - viewWorldH, targetCamY));
 
-        // Smoothly approach target only when needed (dt from last frame).
-        // We don't pass dt into draw(), so approximate using frame time.
-        const now = performance.now();
-        const last = this._lastDrawTs || now;
-        this._lastDrawTs = now;
-        const dt = Math.min(0.05, Math.max(0.001, (now - last) / 1000));
-        const t = 1 - Math.exp(-dt * this.cameraSmooth);
+        // Smoothly approach target using the simulation dt (less "sticky" than timing-based estimates)
+        const dt = Math.min(0.05, Math.max(0.001, this._dt || 1 / 60));
+
+        // Dynamic smooth: on mobile and when stick is pushed hard, follow snappier to reduce perceived latency.
+        const axis = (this.input && this.input.getMoveAxis) ? this.input.getMoveAxis() : { x: 0, y: 0 };
+        const mag = Math.min(1, Math.hypot(axis.x || 0, axis.y || 0));
+        let smooth = this.cameraSmooth;
+        if (this.mobileControls && this.mobileControls.isMobile) smooth *= 1.35;
+        if (mag > 0.55) smooth *= (1 + (mag - 0.55) * 0.9); // up to ~1.4x
+        const t = 1 - Math.exp(-dt * smooth);
 
         this.cameraX = this.cameraX + (targetCamX - this.cameraX) * t;
         this.cameraY = this.cameraY + (targetCamY - this.cameraY) * t;
+
+        // Anti-lag clamp at the deadzone edge: if player would exit the safe area, snap that axis to target.
+        if (p) {
+            const marginX = Math.min(viewWorldW * 0.45, Math.max(60, viewWorldW * this.cameraMarginX));
+            const marginY = Math.min(viewWorldH * 0.45, Math.max(60, viewWorldH * this.cameraMarginY));
+            const left = this.cameraX + marginX;
+            const right = this.cameraX + (viewWorldW - marginX);
+            const top = this.cameraY + marginY;
+            const bottom = this.cameraY + (viewWorldH - marginY);
+            if (p.x < left - 2 || p.x > right + 2) this.cameraX = targetCamX;
+            if (p.y < top - 2 || p.y > bottom + 2) this.cameraY = targetCamY;
+        }
 
         const camX = this.cameraX;
         const camY = this.cameraY;
