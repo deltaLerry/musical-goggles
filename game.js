@@ -934,10 +934,12 @@ class Enemy {
         const playerDrivenLevel = Math.max(1, 1 + Math.floor((playerLevel - 1) * 0.9));
         this.level = Math.max(progressLevel, playerDrivenLevel);
         const baseF = 1 + this.level * 0.06; // stronger ramp than before
-        const isBossLike = (this.type === 'boss' || this.type === 'elite');
-        const hpMul = Math.pow(baseF, isBossLike ? 1.05 : 1.25);
-        const dmgMul = Math.pow(baseF, isBossLike ? 1.03 : 1.18);
-        const speedMul = Math.pow(baseF, isBossLike ? 0.03 : 0.06);
+        const isBoss = (this.type === 'boss');
+        const isElite = (this.type === 'elite');
+        // Boss/Elite scaling更温和（避免数值膨胀），但通过“机制”制造压迫感。
+        const hpMul = Math.pow(baseF, isBoss ? 1.08 : (isElite ? 1.16 : 1.25));
+        const dmgMul = Math.pow(baseF, isBoss ? 1.05 : (isElite ? 1.10 : 1.18));
+        const speedMul = Math.pow(baseF, isBoss ? 0.035 : (isElite ? 0.05 : 0.06));
         this.maxHp = this.baseHp * hpMul;
         
         // Frenzy nerfs
@@ -984,7 +986,8 @@ class Enemy {
         const dy = this.game.player.y - this.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
 
-        if (this.type === 'boss' || this.type === 'elite') {
+        // Boss uses dedicated behavior tree; elites use normal AI + special behaviors.
+        if (this.type === 'boss') {
             this.updateBossBehavior(dt, dist, dx, dy);
             return;
         }
@@ -1111,6 +1114,198 @@ class Enemy {
 
     updateBossBehavior(dt, dist, dx, dy) {
         if (dist <= 0.0001) dist = 0.0001;
+
+        // 多原型 Boss（优先）：用机制驱动，给玩家“记忆点”
+        const g = this.game;
+        const p = g.player;
+        const hpPct = this.hp / Math.max(1, this.maxHp);
+        const bt = this.bossType || null;
+        if (!this.skillTimers) this.skillTimers = {};
+        const timers = this.skillTimers;
+        const tick = (k) => { if (!timers[k]) timers[k] = 0; timers[k] += dt; return timers[k]; };
+        const reset = (k) => { timers[k] = 0; };
+        const clampWorld = (x, y) => {
+            const pad = 220;
+            return {
+                x: Math.max(pad, Math.min(g.worldWidth - pad, x)),
+                y: Math.max(pad, Math.min(g.worldHeight - pad, y)),
+            };
+        };
+
+        if (bt === 'queen') {
+            // 蜂后：召唤自爆蜂 + 冲锋加速
+            this.x += (dx / dist) * this.speed * dt;
+            this.y += (dy / dist) * this.speed * dt;
+            if (checkCollision(this, p)) p.takeDamage(this.damage * dt);
+
+            if (tick('summon') >= Math.max(2.8, 4.2 - (1 - hpPct) * 1.2)) {
+                reset('summon');
+                const n = (hpPct > 0.5 ? 3 : 5);
+                for (let i = 0; i < n; i++) {
+                    const ang = (Math.PI * 2) * (i / n) + Math.random() * 0.35;
+                    const r = 140 + Math.random() * 90;
+                    const pos = clampWorld(this.x + Math.cos(ang) * r, this.y + Math.sin(ang) * r);
+                    g.spawnEnemyFromType('kamikaze', { spawnAt: pos });
+                }
+            }
+
+            if (!timers.chargeActive) timers.chargeActive = 0;
+            if (timers.chargeActive > 0) {
+                timers.chargeActive -= dt;
+                const mul = 2.3;
+                this.x += (dx / dist) * this.speed * (mul - 1) * dt;
+                this.y += (dy / dist) * this.speed * (mul - 1) * dt;
+            } else if (tick('charge') >= (hpPct > 0.6 ? 6.2 : 4.8)) {
+                reset('charge');
+                timers.chargeActive = 0.75;
+                g.createAoE(this.x, this.y, 140, 0.35, 0, 'rgba(255, 204, 128, 0.18)', 'both');
+            }
+            return;
+        }
+
+        if (bt === 'toad') {
+            // 巨蟾：吐毒池（锁定玩家）+ 跃击落毒
+            const mul = (hpPct < 0.5 ? 1.08 : 1.0);
+            this.x += (dx / dist) * this.speed * mul * dt;
+            this.y += (dy / dist) * this.speed * mul * dt;
+            if (checkCollision(this, p)) p.takeDamage(this.damage * dt);
+
+            if (tick('spit') >= (hpPct > 0.5 ? 3.3 : 2.6)) {
+                reset('spit');
+                const base = 6 + this.level * 0.35;
+                g.createAoE(p.x, p.y, 180, 2.8, base, 'rgba(124, 179, 66, 0.22)', 'player', { tickInterval: 0.45 });
+            }
+
+            if (!timers.leapActive) timers.leapActive = 0;
+            if (timers.leapActive > 0) {
+                timers.leapActive -= dt;
+                const mul2 = 2.6;
+                this.x += (dx / dist) * this.speed * (mul2 - 1) * dt;
+                this.y += (dy / dist) * this.speed * (mul2 - 1) * dt;
+            } else if (tick('leap') >= (hpPct > 0.55 ? 5.8 : 4.5)) {
+                reset('leap');
+                timers.leapActive = 0.65;
+                g.createAoE(p.x, p.y, 150, 1.6, 7 + this.level * 0.25, 'rgba(156, 39, 176, 0.18)', 'player', { tickInterval: 0.5 });
+            }
+            return;
+        }
+
+        if (bt === 'gunslinger') {
+            // 枪手：扇形齐射 + 镜像闪现
+            const range = this.attackRange || 520;
+            if (dist > range * 0.7) {
+                this.x += (dx / dist) * this.speed * dt;
+                this.y += (dy / dist) * this.speed * dt;
+            } else if (dist < range * 0.45) {
+                this.x -= (dx / dist) * this.speed * 0.6 * dt;
+                this.y -= (dy / dist) * this.speed * 0.6 * dt;
+            }
+            if (checkCollision(this, p)) p.takeDamage(this.damage * dt);
+
+            if (tick('volley') >= (hpPct > 0.55 ? 2.8 : 2.2)) {
+                reset('volley');
+                const angle = Math.atan2(dy, dx);
+                const shots = (hpPct > 0.5 ? 5 : 7);
+                const spread = (hpPct > 0.5 ? 0.16 : 0.22);
+                for (let i = 0; i < shots; i++) {
+                    const off = (i - (shots - 1) / 2) * spread;
+                    g.projectiles.push(new Projectile(g, this.x, this.y, null, {
+                        isEnemy: true,
+                        angle: angle + off,
+                        color: '#26C6DA',
+                        damage: this.damage * 0.65,
+                        speed: 520,
+                        radius: 4,
+                        onHitPlayer: (gg) => gg.applyPlayerSlow(0.8, 0.82)
+                    }));
+                }
+            }
+
+            if (tick('blink') >= (hpPct > 0.55 ? 5.2 : 4.0)) {
+                reset('blink');
+                const ang = Math.random() * Math.PI * 2;
+                const r = 260 + Math.random() * 180;
+                const pos = clampWorld(p.x + Math.cos(ang) * r, p.y + Math.sin(ang) * r);
+                this.x = pos.x;
+                this.y = pos.y;
+            }
+            return;
+        }
+
+        if (bt === 'priest') {
+            // 司祭：护盾相位（减伤）+ 自愈 + 召唤治疗怪
+            this.x += (dx / dist) * this.speed * dt;
+            this.y += (dy / dist) * this.speed * dt;
+            if (checkCollision(this, p)) p.takeDamage(this.damage * dt);
+
+            if (!timers.shieldCd) timers.shieldCd = 0;
+            if (!timers.shieldActive) timers.shieldActive = 0;
+            if (timers.shieldCd > 0) timers.shieldCd -= dt;
+            if (timers.shieldActive > 0) {
+                timers.shieldActive -= dt;
+                this.dmgTakenMul = 0.55;
+            } else {
+                this.dmgTakenMul = 1;
+                if (hpPct < 0.65 && timers.shieldCd <= 0) {
+                    timers.shieldActive = 6.5;
+                    timers.shieldCd = 13.0;
+                    g.createAoE(this.x, this.y, 220, 0.6, 0, 'rgba(255, 215, 64, 0.18)', 'both');
+                }
+            }
+
+            if (tick('ritual') >= (hpPct > 0.5 ? 4.6 : 3.6)) {
+                reset('ritual');
+                this.hp = Math.min(this.maxHp, this.hp + (22 + this.level * 1.6));
+                if (Math.random() < 0.55) {
+                    const ang = Math.random() * Math.PI * 2;
+                    const pos = clampWorld(this.x + Math.cos(ang) * 170, this.y + Math.sin(ang) * 170);
+                    g.spawnEnemyFromType('healer', { spawnAt: pos });
+                }
+            }
+            return;
+        }
+
+        if (bt === 'reaper') {
+            // 收割者：虚空领域（减速）+ 召唤扭曲幽影 + 闪现突进
+            this.x += (dx / dist) * this.speed * dt;
+            this.y += (dy / dist) * this.speed * dt;
+            if (checkCollision(this, p)) p.takeDamage(this.damage * dt);
+
+            if (tick('void') >= (hpPct > 0.55 ? 4.8 : 3.7)) {
+                reset('void');
+                const dmg = 5 + this.level * 0.35;
+                g.createAoE(p.x, p.y, 210, 2.4, dmg, 'rgba(179, 136, 255, 0.16)', 'player', {
+                    tickInterval: 0.45,
+                    onTickPlayer: (gg) => gg.applyPlayerSlow(0.55, 0.84)
+                });
+            }
+
+            if (tick('summon') >= (hpPct > 0.5 ? 6.5 : 5.2)) {
+                reset('summon');
+                const n = (hpPct > 0.5 ? 1 : 2);
+                for (let i = 0; i < n; i++) {
+                    const ang = Math.random() * Math.PI * 2;
+                    const pos = clampWorld(p.x + Math.cos(ang) * 300, p.y + Math.sin(ang) * 300);
+                    g.spawnEnemyFromType('warper', { spawnAt: pos });
+                }
+            }
+
+            if (tick('blink') >= (hpPct > 0.55 ? 5.6 : 4.4)) {
+                reset('blink');
+                const ang = Math.random() * Math.PI * 2;
+                const pos = clampWorld(p.x + Math.cos(ang) * 260, p.y + Math.sin(ang) * 260);
+                this.x = pos.x;
+                this.y = pos.y;
+                timers.dash = 0.55;
+            }
+            if (timers.dash && timers.dash > 0) {
+                timers.dash -= dt;
+                const mul = 2.2;
+                this.x += (dx / dist) * this.speed * (mul - 1) * dt;
+                this.y += (dy / dist) * this.speed * (mul - 1) * dt;
+            }
+            return;
+        }
         // Default chase
         this.x += (dx / dist) * this.speed * dt;
         this.y += (dy / dist) * this.speed * dt;
@@ -1556,7 +1751,7 @@ class Game {
         // Enemy count tuning (spawn batch size / cap scales with player stats)
         this.enemyCountScale = 1.0;
         // Bosses defeated this run -> elite blueprints that can appear later
-        this.eliteBlueprints = [];
+        // 精英池跨关卡保留：Boss 击败后会把“弱化版本”加入池子，在后续关卡稀有出现
         this.loop = this.loop.bind(this);
         this.lastTime = performance.now(); // Init lastTime before loop
         requestAnimationFrame(this.loop);
@@ -1814,6 +2009,8 @@ class Game {
         // 单波时长略缩短，让节奏更连贯（总时长≈15*18=270s 再加Boss）
         this.waveDuration = 18;
 
+        // 新轮回开始：清空精英池（精英池只在本次轮回内累计）
+        this.eliteBlueprints = [];
         this.startStage(1, { resetPlayer: true, applyBonusSkill: true });
     }
 
@@ -1965,6 +2162,131 @@ class Game {
             div.innerText = t;
             listEl.appendChild(div);
         });
+        // 精英池提示：Boss 击败后会加入精英池，在后续关卡稀有出现
+        if ((this.eliteBlueprints && this.eliteBlueprints.length > 0) && stageNumber >= 4) {
+            const div = document.createElement('div');
+            div.className = 'lobby-enemy-chip';
+            div.innerText = `稀有：精英怪（已解锁 ${this.eliteBlueprints.length} 种）`;
+            listEl.appendChild(div);
+        }
+    }
+
+    // 统一敌人配置入口：普通刷怪/召唤/精英都复用，避免散落在各处
+    getStageEnemyConfigs(stageNumber) {
+        const s = Math.max(1, stageNumber || this.stage || 1);
+        const stageHp = 1 + Math.min(0.35, (s - 1) * 0.06);
+        const stageSpd = 1 + Math.min(0.22, (s - 1) * 0.04);
+
+        const configs = {
+            // exp is a BASE value. Final exp is computed from enemy.level in Enemy constructor.
+            basic: { type: 'basic', hp: 20 * stageHp, speed: 90 * stageSpd, damage: 6, exp: 1, color: (s === 2 ? '#66BB6A' : (s === 1 ? '#FF5252' : '#AB47BC')) },
+            tank: { type: 'tank', hp: 80 * stageHp * 1.15, speed: 50 * stageSpd * 0.9, damage: 15, exp: 3, radius: 25, color: (s >= 4 ? '#546E7A' : '#795548') },
+            runner: { type: 'runner', hp: 15 * stageHp * 0.9, speed: 180 * stageSpd * 1.05, damage: 6, exp: 1, radius: 12, color: (s === 3 ? '#FF7043' : '#FF9800') },
+            ranger: { type: 'ranger', hp: 25 * stageHp, speed: 90 * stageSpd, damage: 8, exp: 2, isRanged: true, attackRange: 300, color: '#00BCD4' },
+
+            // New types
+            kamikaze: {
+                type: 'kamikaze',
+                hp: 18 * stageHp * 0.9,
+                speed: 220 * stageSpd * 1.12,
+                damage: 0,
+                exp: 2,
+                radius: 11,
+                color: '#F44336',
+                behavior: 'kamikaze',
+                explode: {
+                    radius: 115,
+                    damage: 16,
+                    duration: 0.22,
+                    triggerDist: 0,
+                    color: 'rgba(244, 67, 54, 0.40)',
+                    slow: { duration: 0.8, speedMul: 0.78 }
+                }
+            },
+            splitter: {
+                type: 'splitter',
+                hp: 34 * stageHp,
+                speed: 105 * stageSpd,
+                damage: 7,
+                exp: 3,
+                radius: 16,
+                color: '#8E24AA',
+                split: {
+                    count: 2,
+                    childConfig: { type: 'mini', hp: 14, speed: 155, damage: 5, exp: 1, radius: 10, color: '#BA68C8' }
+                }
+            },
+            mini: { type: 'mini', hp: 14 * stageHp * 0.9, speed: 155 * stageSpd * 1.05, damage: 5, exp: 1, radius: 10, color: '#BA68C8' },
+            healer: {
+                type: 'healer',
+                hp: 46 * stageHp * 1.05,
+                speed: 85 * stageSpd,
+                damage: 6,
+                exp: 4,
+                radius: 15,
+                color: '#00E676',
+                aura: { radius: 185, heal: 10, interval: 0.9, color: 'rgba(0, 230, 118, 0.15)' }
+            },
+            poisoner: {
+                type: 'poisoner',
+                hp: 28 * stageHp,
+                speed: 105 * stageSpd,
+                damage: 6,
+                exp: 3,
+                radius: 14,
+                color: '#7CB342',
+                behavior: 'trail_poison',
+                trail: { interval: 0.85, radius: 95, duration: 2.4, damage: 4, tickInterval: 0.45, color: 'rgba(124, 179, 66, 0.22)' }
+            },
+            shielded: {
+                type: 'shielded',
+                hp: 70 * stageHp * 1.1,
+                speed: 72 * stageSpd,
+                damage: 12,
+                exp: 4,
+                radius: 20,
+                color: '#90A4AE',
+                dmgTakenMul: 0.55
+            },
+            sniper: {
+                type: 'sniper',
+                hp: 24 * stageHp,
+                speed: 80 * stageSpd,
+                damage: 14,
+                exp: 4,
+                radius: 13,
+                color: '#26C6DA',
+                isRanged: true,
+                attackRange: 560,
+                rangedProfile: {
+                    cooldown: 2.9,
+                    projSpeed: 560,
+                    color: '#26C6DA',
+                    radius: 4,
+                    onHitSlow: { duration: 1.1, speedMul: 0.78 }
+                }
+            },
+            warper: {
+                type: 'warper',
+                hp: 22 * stageHp * 0.95,
+                speed: 120 * stageSpd,
+                damage: 7,
+                exp: 3,
+                radius: 13,
+                color: '#B388FF',
+                behavior: 'blink',
+                blinkCd: 3.1,
+                leap: { cooldown: 3.8, duration: 0.55, speedMul: 2.4 }
+            },
+        };
+        return configs;
+    }
+
+    spawnEnemyFromType(type, options = {}) {
+        const configs = this.getStageEnemyConfigs(this.stage);
+        const base = configs[type] || configs.basic;
+        const cfg = { ...base, ...options };
+        this.enemies.push(new Enemy(this, cfg));
     }
 
     returnToMenu() {
@@ -2174,27 +2496,31 @@ class Game {
         // 每关怪物池
         const pool = this.getStageEnemyPool(this.stage);
         const allowed = new Set(pool.allowed || ['basic']);
+        const configs = this.getStageEnemyConfigs(this.stage);
 
-        // 允许类型下的基础权重（不同关卡体现不同刷怪风格）
+        // 以关卡池 weights 为准；不提供时使用默认值
         // 注：这里仍然可以根据玩家属性做轻度倾向，但不做“突刺式针对”。
         const weights = {};
-        const addW = (k, w) => { if (allowed.has(k)) weights[k] = (weights[k] || 0) + w; };
+        const addW = (k, w) => {
+            if (!allowed.has(k)) return;
+            weights[k] = (weights[k] || 0) + w;
+        };
+
+        if (pool.weights) {
+            for (const [k, w] of Object.entries(pool.weights)) addW(k, w);
+        } else {
+            // fallback defaults
+            addW('basic', 10);
+            addW('runner', 4);
+            addW('tank', 4);
+            addW('ranger', 4);
+        }
 
         if (this.frenzyActive) {
-            addW('basic', 20);
+            // Frenzy: 只刷基础怪，避免机制怪打断爽刷
+            Object.keys(weights).forEach(k => weights[k] = 0);
+            addW('basic', 24);
         } else {
-            if (allowed.has('basic')) addW('basic', 10);
-            if (allowed.has('runner')) addW('runner', 4);
-            if (allowed.has('tank')) addW('tank', 4);
-            if (allowed.has('ranger')) addW('ranger', 4);
-            if (allowed.has('kamikaze')) addW('kamikaze', 3);
-            if (allowed.has('splitter')) addW('splitter', 3);
-            if (allowed.has('healer')) addW('healer', 2);
-            if (allowed.has('poisoner')) addW('poisoner', 3);
-            if (allowed.has('shielded')) addW('shielded', 2);
-            if (allowed.has('sniper')) addW('sniper', 2);
-            if (allowed.has('warper')) addW('warper', 2);
-
             // 轻度倾向：避免玩家“完全无解”的局面，但不走大幅波动
             if (player) {
                 const isSlow = player.speed < 220;
@@ -2211,6 +2537,7 @@ class Game {
                 addW('runner', 1);
                 addW('tank', 1);
                 addW('ranger', 1);
+                // 机制怪在后半段略微提高出现率，但不“倾倒式上新”
                 addW('kamikaze', 1);
                 addW('splitter', 1);
                 addW('poisoner', 1);
@@ -2230,134 +2557,18 @@ class Game {
             if (random <= 0) { type = k; break; }
         }
 
-        // 每关配置差异：同一种怪在不同关卡有不同皮肤/数值倾向（“每关不同怪”的体感）
-        const s = Math.max(1, this.stage || 1);
-        const stageHp = 1 + Math.min(0.35, (s - 1) * 0.06);
-        const stageSpd = 1 + Math.min(0.22, (s - 1) * 0.04);
+        // 精英池：Boss 击败后解锁，后续关卡稀有出现（不需要写进关卡 allowed）
+        if (!this.frenzyActive && this.eliteBlueprints && this.eliteBlueprints.length > 0 && this.stage >= 4) {
+            weights['elite'] = (weights['elite'] || 0) + Math.min(2, 1 + Math.floor(this.eliteBlueprints.length * 0.5));
+        }
 
-        const configs = {
-            // exp is a BASE value. Final exp is computed from enemy.level in Enemy constructor.
-            'basic': { type: 'basic', hp: 20 * stageHp, speed: 90 * stageSpd, damage: 6, exp: 1, color: (s === 2 ? '#66BB6A' : (s === 1 ? '#FF5252' : '#AB47BC')) },
-            'tank': { type: 'tank', hp: 80 * stageHp * 1.15, speed: 50 * stageSpd * 0.9, damage: 15, exp: 3, radius: 25, color: (s >= 4 ? '#546E7A' : '#795548') },
-            'runner': { type: 'runner', hp: 15 * stageHp * 0.9, speed: 180 * stageSpd * 1.05, damage: 6, exp: 1, radius: 12, color: (s === 3 ? '#FF7043' : '#FF9800') },
-            'ranger': { type: 'ranger', hp: 25 * stageHp, speed: 90 * stageSpd, damage: 8, exp: 2, isRanged: true, attackRange: 300, color: '#00BCD4' },
+        if (type === 'elite' && this.eliteBlueprints && this.eliteBlueprints.length > 0) {
+            const bp = this.eliteBlueprints[Math.floor(Math.random() * this.eliteBlueprints.length)];
+            this.enemies.push(new Enemy(this, this.makeEliteConfigFromBlueprint(bp)));
+            return;
+        }
 
-            // --- 新怪物：自爆蜂（贴近引爆，逼走位）
-            'kamikaze': {
-                type: 'kamikaze',
-                hp: 18 * stageHp * 0.9,
-                speed: 220 * stageSpd * 1.12,
-                damage: 0,
-                exp: 2,
-                radius: 11,
-                color: '#F44336',
-                behavior: 'kamikaze',
-                explode: {
-                    radius: 115,
-                    damage: 16,
-                    duration: 0.22,
-                    triggerDist: 0,
-                    color: 'rgba(244, 67, 54, 0.40)',
-                    slow: { duration: 0.8, speedMul: 0.78 }
-                }
-            },
-
-            // --- 新怪物：分裂怪（死后分裂成小怪）
-            'splitter': {
-                type: 'splitter',
-                hp: 34 * stageHp,
-                speed: 105 * stageSpd,
-                damage: 7,
-                exp: 3,
-                radius: 16,
-                color: '#8E24AA',
-                split: {
-                    count: 2,
-                    childConfig: {
-                        type: 'mini',
-                        hp: 14,
-                        speed: 155,
-                        damage: 5,
-                        exp: 1,
-                        radius: 10,
-                        color: '#BA68C8'
-                    }
-                }
-            },
-
-            // --- 新怪物：治疗祭司（给周围怪回血）
-            'healer': {
-                type: 'healer',
-                hp: 46 * stageHp * 1.05,
-                speed: 85 * stageSpd,
-                damage: 6,
-                exp: 4,
-                radius: 15,
-                color: '#00E676',
-                aura: { radius: 185, heal: 10, interval: 0.9, color: 'rgba(0, 230, 118, 0.15)' }
-            },
-
-            // --- 新怪物：毒池蜗牛（移动留毒，控场）
-            'poisoner': {
-                type: 'poisoner',
-                hp: 28 * stageHp,
-                speed: 105 * stageSpd,
-                damage: 6,
-                exp: 3,
-                radius: 14,
-                color: '#7CB342',
-                behavior: 'trail_poison',
-                trail: { interval: 0.85, radius: 95, duration: 2.4, damage: 4, tickInterval: 0.45, color: 'rgba(124, 179, 66, 0.22)' }
-            },
-
-            // --- 新怪物：盾卫（减伤，逼你提升DPS）
-            'shielded': {
-                type: 'shielded',
-                hp: 70 * stageHp * 1.1,
-                speed: 72 * stageSpd,
-                damage: 12,
-                exp: 4,
-                radius: 20,
-                color: '#90A4AE',
-                dmgTakenMul: 0.55
-            },
-
-            // --- 新怪物：狙击手（远距离打慢速弹/致盲）
-            'sniper': {
-                type: 'sniper',
-                hp: 24 * stageHp,
-                speed: 80 * stageSpd,
-                damage: 14,
-                exp: 4,
-                radius: 13,
-                color: '#26C6DA',
-                isRanged: true,
-                attackRange: 560,
-                rangedProfile: {
-                    cooldown: 2.9,
-                    projSpeed: 560,
-                    color: '#26C6DA',
-                    radius: 4,
-                    onHitSlow: { duration: 1.1, speedMul: 0.78 }
-                }
-            },
-
-            // --- 新怪物：扭曲幽影（闪现逼近）
-            'warper': {
-                type: 'warper',
-                hp: 22 * stageHp * 0.95,
-                speed: 120 * stageSpd,
-                damage: 7,
-                exp: 3,
-                radius: 13,
-                color: '#B388FF',
-                behavior: 'blink',
-                blinkCd: 3.1,
-                leap: { cooldown: 3.8, duration: 0.55, speedMul: 2.4 }
-            }
-        };
-
-        this.enemies.push(new Enemy(this, configs[type] || configs['basic']));
+        this.enemies.push(new Enemy(this, configs[type] || configs.basic));
     }
 
     onEnemyKilled(enemy) {
@@ -2403,6 +2614,8 @@ class Game {
         const boss = new Enemy(this, bp.config);
         this.enemies.push(boss);
         this.bossRef = boss;
+        const nameEl = document.getElementById('boss-name');
+        if (nameEl) nameEl.innerText = bp.name || 'BOSS';
     }
 
     bossDefeated(boss) {
@@ -2605,54 +2818,129 @@ class Game {
     }
 
     generateBossBlueprint() {
-        // Boss can have up to 3 skills, referencing player skills.
-        const candidates = ['split_shot', 'mushroom_trap', 'blinding_dart', 'poison_nova'];
-        // Prefer skills the player already has, but allow others too.
-        candidates.sort((a, b) => ((this.player.skills[b] || 0) - (this.player.skills[a] || 0)) + (Math.random() - 0.5) * 0.5);
+        // 多原型 Boss：用“机制”制造记忆点，而不是单纯堆数值
+        const s = Math.max(1, this.stage || 1);
+        const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
-        const skillCount = Math.min(3, 1 + Math.floor(Math.random() * 3)); // 1~3
-        const chosen = candidates.slice(0, skillCount).map(id => ({ id, lvl: this.getBossSkillLevelCap(id) }));
-        const mainSkillId = chosen[0] ? chosen[0].id : null;
+        const bosses = [
+            {
+                id: 'queen',
+                name: '蜂后 · 余烬之翼',
+                color: '#FFCC80',
+                config: {
+                    type: 'boss',
+                    bossType: 'queen',
+                    hp: 820 + s * 150,
+                    speed: 78 + Math.min(36, s * 2),
+                    damage: 16 + s * 3,
+                    exp: 30,
+                    radius: 58,
+                    color: '#FFCC80'
+                }
+            },
+            {
+                id: 'toad',
+                name: '毒沼巨蟾 · 黏液王',
+                color: '#9CCC65',
+                config: {
+                    type: 'boss',
+                    bossType: 'toad',
+                    hp: 920 + s * 170,
+                    speed: 66 + Math.min(28, s * 2),
+                    damage: 18 + s * 3,
+                    exp: 32,
+                    radius: 62,
+                    color: '#9CCC65'
+                }
+            },
+            {
+                id: 'gunslinger',
+                name: '镜像枪手 · 零号',
+                color: '#26C6DA',
+                config: {
+                    type: 'boss',
+                    bossType: 'gunslinger',
+                    hp: 760 + s * 140,
+                    speed: 72 + Math.min(32, s * 2),
+                    damage: 20 + s * 3,
+                    exp: 34,
+                    radius: 54,
+                    color: '#26C6DA',
+                    isRanged: true,
+                    attackRange: 520,
+                    rangedProfile: { cooldown: 2.2, projSpeed: 520, color: '#26C6DA', radius: 4 }
+                }
+            },
+            {
+                id: 'priest',
+                name: '圣坛司祭 · 金辉之环',
+                color: '#FFD740',
+                config: {
+                    type: 'boss',
+                    bossType: 'priest',
+                    hp: 980 + s * 180,
+                    speed: 62 + Math.min(26, s * 2),
+                    damage: 16 + s * 3,
+                    exp: 36,
+                    radius: 60,
+                    color: '#FFD740'
+                }
+            },
+            {
+                id: 'reaper',
+                name: '虚空收割者 · 低语',
+                color: '#B388FF',
+                config: {
+                    type: 'boss',
+                    bossType: 'reaper',
+                    hp: 860 + s * 160,
+                    speed: 76 + Math.min(34, s * 2),
+                    damage: 18 + s * 3,
+                    exp: 38,
+                    radius: 60,
+                    color: '#B388FF'
+                }
+            }
+        ];
 
-        // Base boss config still uses Enemy scaling by stage/wave.
-        const config = {
-            type: 'boss',
-            hp: 900 + this.stage * 140,
-            speed: 70 + Math.min(40, this.stage * 2),
-            damage: 18 + this.stage * 3,
-            // Base EXP for boss, final exp scales with boss level in Enemy constructor.
-            exp: 25,
-            radius: 55,
-            color: '#FFD740',
-            skills: chosen,
-            mainSkillId
-        };
-        return { config, chosen };
+        // 随关卡提升：逐步把“更复杂”的 Boss 放进池子
+        let pool = bosses.slice(0, Math.min(bosses.length, 2 + Math.floor((s - 1) / 1.2)));
+        // 避免“每关固定一个”太死板：从池子里随机抽
+        const chosen = pick(pool);
+        return { ...chosen, config: chosen.config };
     }
 
     registerEliteFromBoss(boss) {
-        if (!boss || !boss.skills || boss.skills.length === 0) return;
-        // Store a blueprint that will spawn as an "elite" later.
+        if (!boss) return;
+        // Store a weakened blueprint that will spawn as an "elite" later.
+        // Elite inherits ONE signature mechanic from the boss (readable + not overwhelming).
+        const bt = boss.bossType || 'generic';
         this.eliteBlueprints.push({
-            skills: boss.skills.map(s => ({ id: s.id, lvl: s.lvl })),
+            bossType: bt,
             color: boss.color || '#FFD740'
         });
     }
 
     makeEliteConfigFromBlueprint(bp) {
-        // Elites are weaker than boss, but keep the boss skill set.
-        return {
-            type: 'elite',
-            hp: 220,
-            speed: 110,
-            damage: 10,
-            // Base EXP for elite, final exp scales with elite level in Enemy constructor.
-            exp: 6,
-            radius: 22,
-            color: bp.color || '#FFD740',
-            skills: bp.skills,
-            mainSkillId: bp.skills && bp.skills[0] ? bp.skills[0].id : null
-        };
+        const bt = (bp && bp.bossType) ? bp.bossType : 'generic';
+        const c = (bp && bp.color) ? bp.color : '#FFD740';
+        // Elites: weaker stats, keep ONE boss signature.
+        if (bt === 'queen') {
+            return { type: 'elite', hp: 260, speed: 140, damage: 10, exp: 7, radius: 20, color: c, leap: { cooldown: 3.6, duration: 0.55, speedMul: 2.2 } };
+        }
+        if (bt === 'toad') {
+            return { type: 'elite', hp: 280, speed: 115, damage: 10, exp: 7, radius: 22, color: c, behavior: 'trail_poison', trail: { interval: 1.0, radius: 90, duration: 2.2, damage: 4, tickInterval: 0.5, color: 'rgba(124, 179, 66, 0.20)' } };
+        }
+        if (bt === 'gunslinger') {
+            return { type: 'elite', hp: 240, speed: 120, damage: 12, exp: 8, radius: 18, color: c, isRanged: true, attackRange: 520, behavior: 'blink', blinkCd: 4.0, rangedProfile: { cooldown: 2.6, projSpeed: 520, color: c, radius: 4, onHitSlow: { duration: 0.9, speedMul: 0.8 } } };
+        }
+        if (bt === 'priest') {
+            return { type: 'elite', hp: 320, speed: 105, damage: 10, exp: 8, radius: 22, color: c, aura: { radius: 170, heal: 8, interval: 1.0, color: 'rgba(255, 215, 64, 0.12)' }, dmgTakenMul: 0.75 };
+        }
+        if (bt === 'reaper') {
+            return { type: 'elite', hp: 260, speed: 135, damage: 11, exp: 8, radius: 20, color: c, behavior: 'blink', blinkCd: 3.6, leap: { cooldown: 4.2, duration: 0.5, speedMul: 2.3 } };
+        }
+        return { type: 'elite', hp: 260, speed: 120, damage: 10, exp: 7, radius: 20, color: c };
     }
 
     createHealthPotion(x, y) {
