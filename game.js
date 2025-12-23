@@ -482,21 +482,24 @@ const SKILLS = {
         maxLevel: 5,
         cooldown: 5,
         getParams: (game, lvl, caster) => {
-            const rawCd = Math.max(1.8, 5.2 - 0.55 * lvl);
-            const cooldown = Math.max(0.6, rawCd * (1 - ((caster && caster.cdr) || 0)));
+            // 主动技能CD：避免被减到“几乎为0”。对技能冷却减免做上限，并设置最低CD。
+            const cdr = Math.max(0, Math.min(0.6, (caster && caster.cdr) || 0)); // 技能CD减免上限 60%
+            const rawCd = Math.max(2.3, 5.4 - 0.52 * lvl); // 满级仍保留一点间隔
+            const cooldown = Math.max(1.15, rawCd * (1 - cdr));
             const radius = 140 + lvl * 22;
-            const duration = 2.6 + (lvl >= 3 ? 1.2 : 0);
+            // 避免满级近似常驻：持续时间提升，但不追求完全覆盖
+            const duration = 2.2 + (lvl >= 3 ? 0.9 : 0);
             const dmgPerTick = 8 + lvl * 6;
-            const tickInterval = (lvl >= 4 ? 0.35 : 0.5);
+            const tickInterval = (lvl >= 4 ? 0.4 : 0.5);
             const followPlayer = (lvl >= 5);
             return { cooldown, radius, duration, dmgPerTick, tickInterval, followPlayer };
         },
         desc: (lvl) => {
-            const cd = Math.max(1.8, 5.2 - 0.55 * lvl);
+            const cd = Math.max(2.3, 5.4 - 0.52 * lvl);
             const r = 140 + lvl * 22;
-            const dur = 2.6 + (lvl >= 3 ? 1.2 : 0);
+            const dur = 2.2 + (lvl >= 3 ? 0.9 : 0);
             const dmg = 8 + lvl * 6;
-            const tick = (lvl >= 4 ? 0.35 : 0.5);
+            const tick = (lvl >= 4 ? 0.4 : 0.5);
             const mech = [
                 (lvl >= 3 ? 'Lv.3+: 持续时间提升' : ''),
                 (lvl >= 4 ? 'Lv.4+: 毒伤跳数更快' : ''),
@@ -522,8 +525,9 @@ const SKILLS = {
         maxLevel: 5,
         cooldown: 3,
         getParams: (game, lvl, caster) => {
-            const rawCd = Math.max(1.2, 3.2 - 0.35 * lvl);
-            const cooldown = Math.max(0.55, rawCd * (1 - ((caster && caster.cdr) || 0)));
+            const cdr = Math.max(0, Math.min(0.6, (caster && caster.cdr) || 0));
+            const rawCd = Math.max(1.7, 3.4 - 0.32 * lvl);
+            const cooldown = Math.max(0.95, rawCd * (1 - cdr));
             const range = 360 + lvl * 80;
             const damage = 22 + lvl * 12;
             const stunDuration = Math.min(2.2, 0.7 + lvl * 0.22);
@@ -531,7 +535,7 @@ const SKILLS = {
             return { cooldown, range, damage, stunDuration, shots };
         },
         desc: (lvl) => {
-            const cd = Math.max(1.2, 3.2 - 0.35 * lvl);
+            const cd = Math.max(1.7, 3.4 - 0.32 * lvl);
             const range = 360 + lvl * 80;
             const dmg = 22 + lvl * 12;
             const stun = Math.min(2.2, 0.7 + lvl * 0.22);
@@ -566,18 +570,19 @@ const SKILLS = {
         maxLevel: 5,
         cooldown: 4,
         getParams: (game, lvl, caster) => {
-            const rawCd = Math.max(1.4, 4.2 - 0.45 * lvl);
-            const cooldown = Math.max(0.65, rawCd * (1 - ((caster && caster.cdr) || 0)));
+            const cdr = Math.max(0, Math.min(0.6, (caster && caster.cdr) || 0));
+            const rawCd = Math.max(1.9, 4.3 - 0.40 * lvl);
+            const cooldown = Math.max(1.05, rawCd * (1 - cdr));
             const damage = 40 + lvl * 22;
             const count = (lvl >= 3 ? 2 : 1);
             const triggerRadius = 26 + lvl * 5;
             const aoeRadius = 100 + lvl * 10;
-            const armTime = (lvl >= 5 ? 0.15 : 1.0);
+            const armTime = (lvl >= 5 ? 0.35 : 1.0);
             const stunDuration = (lvl >= 4 ? 2.2 : 1.5);
             return { cooldown, damage, count, triggerRadius, aoeRadius, armTime, stunDuration };
         },
         desc: (lvl) => {
-            const cd = Math.max(1.4, 4.2 - 0.45 * lvl);
+            const cd = Math.max(1.9, 4.3 - 0.40 * lvl);
             const dmg = 40 + lvl * 22;
             const aoe = 100 + lvl * 10;
             const count = (lvl >= 3 ? 2 : 1);
