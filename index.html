@@ -43,10 +43,19 @@
     <div id="shop-screen" class="hidden">
         <h2>天赋与传承</h2>
         <div class="currency-display">点数: <span id="shop-points">0</span></div>
+        <div class="currency-display" style="font-size:18px;color:#80DEEA;margin-top:-10px;">
+            技能碎片: <span id="shop-skill-shards">0</span>
+        </div>
         
         <div id="heirloom-display" class="hidden">
             <h3>传承装备 (已激活)</h3>
             <div id="heirloom-list"></div>
+        </div>
+
+        <div id="skill-unlock-section">
+            <h3>技能库（关卡外解锁）</h3>
+            <div class="skill-unlock-hint">击败 Boss/精英、连杀里程碑可获得技能碎片；解锁后才会出现在局内升级池。</div>
+            <div id="skill-unlock-list"></div>
         </div>
 
         <div id="talent-section">

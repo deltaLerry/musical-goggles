@@ -471,25 +471,29 @@ const TALENTS = {
 };
 
 const SKILLS = {
-    'sharpness': { id: 'sharpness', name: '锋利', type: 'passive', maxLevel: 10, desc: (lvl) => `攻击力 +${12}`, apply: (p, lvl) => p.damage += 12 * lvl },
-    'quick_draw': { id: 'quick_draw', name: '快速拔枪', type: 'passive', maxLevel: 10, desc: (lvl) => `攻速 +10%`, apply: (p, lvl) => p.attackCooldown *= Math.pow(0.96, lvl) },
-    'vitality': { id: 'vitality', name: '强壮', type: 'passive', maxLevel: 10, desc: (lvl) => `最大生命 +30`, apply: (p, lvl) => { p.maxHp += 30 * lvl; } },
-    'split_shot': { id: 'split_shot', name: '分裂箭', type: 'passive', maxLevel: 5, desc: (lvl) => `普攻额外发射 ${lvl} 支箭矢 (50%伤害)`, apply: (p, lvl) => p.splitShotCount = lvl },
+    'sharpness': { id: 'sharpness', name: '锋利', type: 'passive', maxLevel: 10, unlockCost: 0, unlockDesc: '基础被动：稳定提升普攻伤害。', desc: (lvl) => `攻击力 +${12}`, apply: (p, lvl) => p.damage += 12 * lvl },
+    'quick_draw': { id: 'quick_draw', name: '快速拔枪', type: 'passive', maxLevel: 10, unlockCost: 0, unlockDesc: '基础被动：提升普攻频率。', desc: (lvl) => `攻速 +10%`, apply: (p, lvl) => p.attackCooldown *= Math.pow(0.96, lvl) },
+    'vitality': { id: 'vitality', name: '强壮', type: 'passive', maxLevel: 10, unlockCost: 0, unlockDesc: '基础被动：更肉、更稳。', desc: (lvl) => `最大生命 +30`, apply: (p, lvl) => { p.maxHp += 30 * lvl; } },
+    'split_shot': { id: 'split_shot', name: '分裂箭', type: 'passive', maxLevel: 5, unlockCost: 0, unlockDesc: '基础被动：普攻弹幕更密。', desc: (lvl) => `普攻额外发射 ${lvl} 支箭矢 (50%伤害)`, apply: (p, lvl) => p.splitShotCount = lvl },
     'poison_nova': {
         id: 'poison_nova',
         name: '剧毒新星',
         type: 'active',
         maxLevel: 5,
+        unlockCost: 0,
+        unlockDesc: '基础主动：范围持续伤害，高等级强化机制。',
         cooldown: 5,
         getParams: (game, lvl, caster) => {
             // 主动技能CD：避免被减到“几乎为0”。对技能冷却减免做上限，并设置最低CD。
             const cdr = Math.max(0, Math.min(0.6, (caster && caster.cdr) || 0)); // 技能CD减免上限 60%
+            const cdMul = (caster && caster.skillCdMul) ? caster.skillCdMul : 1;
             const rawCd = Math.max(2.3, 5.4 - 0.52 * lvl); // 满级仍保留一点间隔
-            const cooldown = Math.max(1.15, rawCd * (1 - cdr));
+            const cooldown = Math.max(1.15, rawCd * (1 - cdr) * cdMul);
             const radius = 140 + lvl * 22;
             // 避免满级近似常驻：持续时间提升，但不追求完全覆盖
             const duration = 2.2 + (lvl >= 3 ? 0.9 : 0);
-            const dmgPerTick = 8 + lvl * 6;
+            const skillMul = (caster && caster.skillDmgMul) ? caster.skillDmgMul : 1;
+            const dmgPerTick = (8 + lvl * 6) * skillMul;
             const tickInterval = (lvl >= 4 ? 0.4 : 0.5);
             const followPlayer = (lvl >= 5);
             return { cooldown, radius, duration, dmgPerTick, tickInterval, followPlayer };
@@ -523,13 +527,17 @@ const SKILLS = {
         name: '致盲吹箭',
         type: 'active',
         maxLevel: 5,
+        unlockCost: 0,
+        unlockDesc: '基础主动：点杀控制，满级强化目标数。',
         cooldown: 3,
         getParams: (game, lvl, caster) => {
             const cdr = Math.max(0, Math.min(0.6, (caster && caster.cdr) || 0));
+            const cdMul = (caster && caster.skillCdMul) ? caster.skillCdMul : 1;
             const rawCd = Math.max(1.7, 3.4 - 0.32 * lvl);
-            const cooldown = Math.max(0.95, rawCd * (1 - cdr));
+            const cooldown = Math.max(0.95, rawCd * (1 - cdr) * cdMul);
             const range = 360 + lvl * 80;
-            const damage = 22 + lvl * 12;
+            const skillMul = (caster && caster.skillDmgMul) ? caster.skillDmgMul : 1;
+            const damage = (22 + lvl * 12) * skillMul;
             const stunDuration = Math.min(2.2, 0.7 + lvl * 0.22);
             const shots = (lvl >= 5 ? 2 : 1);
             return { cooldown, range, damage, stunDuration, shots };
@@ -568,12 +576,16 @@ const SKILLS = {
         name: '种蘑菇',
         type: 'active',
         maxLevel: 5,
+        unlockCost: 0,
+        unlockDesc: '基础主动：布置陷阱，兼顾伤害与控制。',
         cooldown: 4,
         getParams: (game, lvl, caster) => {
             const cdr = Math.max(0, Math.min(0.6, (caster && caster.cdr) || 0));
+            const cdMul = (caster && caster.skillCdMul) ? caster.skillCdMul : 1;
             const rawCd = Math.max(1.9, 4.3 - 0.40 * lvl);
-            const cooldown = Math.max(1.05, rawCd * (1 - cdr));
-            const damage = 40 + lvl * 22;
+            const cooldown = Math.max(1.05, rawCd * (1 - cdr) * cdMul);
+            const skillMul = (caster && caster.skillDmgMul) ? caster.skillDmgMul : 1;
+            const damage = (40 + lvl * 22) * skillMul;
             const count = (lvl >= 3 ? 2 : 1);
             const triggerRadius = 26 + lvl * 5;
             const aoeRadius = 100 + lvl * 10;
@@ -609,6 +621,288 @@ const SKILLS = {
                 });
             }
         }
+    },
+
+    // ===== New Skill Pool (unlockable) =====
+    'arcane_amp': {
+        id: 'arcane_amp',
+        name: '奥术增幅',
+        type: 'passive',
+        maxLevel: 8,
+        unlockCost: 10,
+        unlockDesc: '让主动技能体系更成型：提高技能伤害，并在高等级强化技能节奏。',
+        desc: (lvl) => {
+            const dmg = 0.06 * lvl;
+            const bonus = (lvl >= 6 ? 'Lv.6+: 主动技能CD额外 -5%（乘算）' : '');
+            return `技能伤害 +${Math.round(dmg * 100)}%` + (bonus ? `\n${bonus}` : '');
+        },
+        apply: (p, lvl) => {
+            p.skillDmgMul = (p.skillDmgMul || 1) * (1 + 0.06 * lvl);
+            if (lvl >= 6) p.skillCdMul = (p.skillCdMul || 1) * 0.95;
+        }
+    },
+    'toxic_blades': {
+        id: 'toxic_blades',
+        name: '毒刃',
+        type: 'passive',
+        maxLevel: 6,
+        unlockCost: 12,
+        unlockDesc: '普攻附带持续伤害，让你不只靠一锤子买卖。',
+        desc: (lvl) => {
+            const dps = 3 + lvl * 3;
+            const dur = 2.2 + lvl * 0.2;
+            const mech = (lvl >= 5 ? 'Lv.5+: 中毒目标移动会更“迟滞”（更容易被控住）' : '');
+            return `普攻命中：附加中毒（${dps}/s，持续 ${dur.toFixed(1)}s）` + (mech ? `\n${mech}` : '');
+        },
+        apply: (p, lvl) => {
+            p.poisonOnHit = {
+                dps: 3 + lvl * 3,
+                duration: 2.2 + lvl * 0.2,
+                slow: (lvl >= 5 ? 0.18 : 0)
+            };
+        }
+    },
+    'adrenaline': {
+        id: 'adrenaline',
+        name: '肾上腺',
+        type: 'passive',
+        maxLevel: 5,
+        unlockCost: 14,
+        unlockDesc: '击杀滚雪球：越杀越快，构筑“连杀型”手感。',
+        desc: (lvl) => {
+            const dur = 1.8 + lvl * 0.35;
+            const mul = 1 + 0.06 * lvl;
+            const stacks = 2 + Math.floor(lvl / 2);
+            return `击杀获得“狂热”：持续 ${dur.toFixed(1)}s，攻速 ×${mul.toFixed(2)}（最多叠加 ${stacks} 层）`;
+        },
+        apply: (p, lvl) => {
+            p.killHaste = {
+                duration: 1.8 + lvl * 0.35,
+                mul: 1 + 0.06 * lvl,
+                maxStacks: 2 + Math.floor(lvl / 2)
+            };
+        }
+    },
+    'chain_lightning': {
+        id: 'chain_lightning',
+        name: '连锁闪电',
+        type: 'active',
+        maxLevel: 5,
+        unlockCost: 18,
+        unlockDesc: '“点名清怪”主动：对密集怪特别强，升级会提升跳跃次数与控制。',
+        cooldown: 6,
+        getParams: (game, lvl, caster) => {
+            const cdr = Math.max(0, Math.min(0.6, (caster && caster.cdr) || 0));
+            const cdMul = (caster && caster.skillCdMul) ? caster.skillCdMul : 1;
+            const rawCd = Math.max(2.6, 6.2 - 0.55 * lvl);
+            const cooldown = Math.max(1.35, rawCd * (1 - cdr) * cdMul);
+            const range = 520 + lvl * 70;
+            const jumps = 2 + lvl; // 3~7
+            const dmg = (18 + lvl * 14) * ((caster && caster.skillDmgMul) ? caster.skillDmgMul : 1);
+            const stun = (lvl >= 5 ? 0.65 : 0);
+            return { cooldown, range, jumps, dmg, stun };
+        },
+        desc: (lvl) => {
+            const rawCd = Math.max(2.6, 6.2 - 0.55 * lvl);
+            const range = 520 + lvl * 70;
+            const jumps = 2 + lvl;
+            const dmg = 18 + lvl * 14;
+            const mech = (lvl >= 5 ? 'Lv.5: 末端闪电附带短暂眩晕' : '');
+            return `电击并连锁跳跃 ${jumps} 次，射程 ${range}，每次伤害 ${dmg}。CD≈${rawCd.toFixed(1)}s` + (mech ? `\n${mech}` : '');
+        },
+        onActivate: (game, lvl, params) => {
+            if (game && game.sfx) game.sfx.play('skill');
+            const p = params || SKILLS['chain_lightning'].getParams(game, lvl, game.player);
+            const hits = game.findNearestEnemies(game.player.x, game.player.y, p.range, p.jumps);
+            let prev = { x: game.player.x, y: game.player.y };
+            hits.forEach((e, idx) => {
+                e.takeDamage(p.dmg);
+                if (p.stun > 0 && idx === hits.length - 1) e.stunned = Math.max(e.stunned || 0, p.stun);
+                game.addSkillFxLine(prev.x, prev.y, e.x, e.y, 'rgba(33,150,243,0.85)');
+                prev = { x: e.x, y: e.y };
+            });
+        }
+    },
+    'frost_nova': {
+        id: 'frost_nova',
+        name: '冰霜新星',
+        type: 'active',
+        maxLevel: 5,
+        unlockCost: 16,
+        unlockDesc: '“保命控场”主动：贴身爆发冻结，升级会扩大范围并强化控制。',
+        cooldown: 7,
+        getParams: (game, lvl, caster) => {
+            const cdr = Math.max(0, Math.min(0.6, (caster && caster.cdr) || 0));
+            const cdMul = (caster && caster.skillCdMul) ? caster.skillCdMul : 1;
+            const rawCd = Math.max(3.0, 7.4 - 0.6 * lvl);
+            const cooldown = Math.max(1.6, rawCd * (1 - cdr) * cdMul);
+            const radius = 150 + lvl * 26;
+            const dmg = (20 + lvl * 10) * ((caster && caster.skillDmgMul) ? caster.skillDmgMul : 1);
+            const freeze = 0.5 + lvl * 0.18; // 0.68~1.4
+            const shatterBonus = (lvl >= 4 ? 0.25 : 0); // 额外伤害
+            return { cooldown, radius, dmg, freeze, shatterBonus };
+        },
+        desc: (lvl) => {
+            const rawCd = Math.max(3.0, 7.4 - 0.6 * lvl);
+            const radius = 150 + lvl * 26;
+            const dmg = 20 + lvl * 10;
+            const freeze = 0.5 + lvl * 0.18;
+            const mech = (lvl >= 4 ? 'Lv.4+: 对被冻结敌人额外伤害（碎裂）' : '');
+            return `爆发冰环：半径 ${radius}，伤害 ${dmg}，冻结≈${freeze.toFixed(1)}s。CD≈${rawCd.toFixed(1)}s` + (mech ? `\n${mech}` : '');
+        },
+        onActivate: (game, lvl, params) => {
+            if (game && game.sfx) game.sfx.play('skill');
+            const p = params || SKILLS['frost_nova'].getParams(game, lvl, game.player);
+            // 一次性爆发：用 AoE 触发一次 tick + 控制
+            game.createAoE(game.player.x, game.player.y, p.radius, 0.12, 0, 'rgba(33, 150, 243, 0.28)', 'enemies', {
+                tickInterval: 0.06,
+                onTickEnemy: (g, e) => {
+                    const was = e.stunned || 0;
+                    e.stunned = Math.max(was, p.freeze);
+                    const extra = (p.shatterBonus > 0 && was > 0.01) ? (p.dmg * p.shatterBonus) : 0;
+                    e.takeDamage(p.dmg + extra);
+                }
+            });
+        }
+    }
+    ,
+    'blade_storm': {
+        id: 'blade_storm',
+        name: '刀刃风暴',
+        type: 'active',
+        maxLevel: 5,
+        unlockCost: 20,
+        unlockDesc: '“清屏爆发”主动：向四周喷射刀刃，适合近战突围与收割。',
+        cooldown: 8,
+        getParams: (game, lvl, caster) => {
+            const cdr = Math.max(0, Math.min(0.6, (caster && caster.cdr) || 0));
+            const cdMul = (caster && caster.skillCdMul) ? caster.skillCdMul : 1;
+            const rawCd = Math.max(3.4, 8.2 - 0.7 * lvl);
+            const cooldown = Math.max(1.8, rawCd * (1 - cdr) * cdMul);
+            const blades = 6 + lvl * 2; // 8~16
+            const dmg = (14 + lvl * 10) * ((caster && caster.skillDmgMul) ? caster.skillDmgMul : 1);
+            const speed = 520 + lvl * 40;
+            const radius = 4;
+            const returnWave = (lvl >= 5);
+            return { cooldown, blades, dmg, speed, radius, returnWave };
+        },
+        desc: (lvl) => {
+            const rawCd = Math.max(3.4, 8.2 - 0.7 * lvl);
+            const blades = 6 + lvl * 2;
+            const dmg = 14 + lvl * 10;
+            const mech = (lvl >= 5 ? 'Lv.5: 追加一轮“回旋刀刃”' : '');
+            return `向四周投掷 ${blades} 枚刀刃，每枚伤害 ${dmg}。CD≈${rawCd.toFixed(1)}s` + (mech ? `\n${mech}` : '');
+        },
+        onActivate: (game, lvl, params) => {
+            if (game && game.sfx) game.sfx.play('skill');
+            const p = params || SKILLS['blade_storm'].getParams(game, lvl, game.player);
+            const baseX = game.player.x, baseY = game.player.y;
+            const dot = (game.player && game.player.poisonOnHit) ? { ...game.player.poisonOnHit, dps: (game.player.poisonOnHit.dps || 0) * 0.5 } : null;
+            for (let i = 0; i < p.blades; i++) {
+                const ang = (i / p.blades) * Math.PI * 2;
+                game.projectiles.push(new Projectile(game, baseX, baseY, null, {
+                    angle: ang,
+                    damage: p.dmg,
+                    speed: p.speed,
+                    radius: p.radius,
+                    color: 'rgba(255, 215, 0, 0.95)',
+                    dot
+                }));
+            }
+            if (p.returnWave) {
+                // 小延迟再喷一轮，让“满级有质变”更明显
+                game.skillFx.push({ t: -0.35, d: 0.36, type: 'blade_return', x: baseX, y: baseY, p });
+            }
+        }
+    },
+    'healing_totem': {
+        id: 'healing_totem',
+        name: '治愈图腾',
+        type: 'active',
+        maxLevel: 5,
+        unlockCost: 16,
+        unlockDesc: '“站桩续航”主动：放一个短时间治疗区域（不强制你贴脸）。',
+        cooldown: 10,
+        getParams: (game, lvl, caster) => {
+            const cdr = Math.max(0, Math.min(0.6, (caster && caster.cdr) || 0));
+            const cdMul = (caster && caster.skillCdMul) ? caster.skillCdMul : 1;
+            const rawCd = Math.max(4.2, 10.2 - 0.8 * lvl);
+            const cooldown = Math.max(2.2, rawCd * (1 - cdr) * cdMul);
+            const radius = 160 + lvl * 18;
+            const duration = 3.8 + lvl * 0.5;
+            const heal = 10 + lvl * 6;
+            const tickInterval = 0.6;
+            const dmg = (lvl >= 4 ? (6 + lvl * 3) * ((caster && caster.skillDmgMul) ? caster.skillDmgMul : 1) : 0);
+            return { cooldown, radius, duration, heal, tickInterval, dmg };
+        },
+        desc: (lvl) => {
+            const rawCd = Math.max(4.2, 10.2 - 0.8 * lvl);
+            const radius = 160 + lvl * 18;
+            const duration = 3.8 + lvl * 0.5;
+            const heal = 10 + lvl * 6;
+            const mech = (lvl >= 4 ? 'Lv.4+: 治疗区同时灼烧敌人' : '');
+            return `放置治疗区：半径 ${radius}，持续 ${duration.toFixed(1)}s，每0.6s 回复 ${heal}。CD≈${rawCd.toFixed(1)}s` + (mech ? `\n${mech}` : '');
+        },
+        onActivate: (game, lvl, params) => {
+            if (game && game.sfx) game.sfx.play('skill');
+            const p = params || SKILLS['healing_totem'].getParams(game, lvl, game.player);
+            const x = game.player.x, y = game.player.y;
+            // 注意：createAoE 默认会对敌人造成 dmg，因此这里把 dmg=0，通过 onTickEnemy 精确控制，避免重复伤害。
+            game.createAoE(x, y, p.radius, p.duration, 0, 'rgba(0, 230, 118, 0.18)', 'both', {
+                tickInterval: p.tickInterval,
+                playerDamage: false,
+                onTickPlayer: (g, plr) => plr.heal(p.heal),
+                onTickEnemy: (g, e) => {
+                    if (p.dmg > 0) e.takeDamage(p.dmg);
+                }
+            });
+        }
+    },
+    'meteor_strike': {
+        id: 'meteor_strike',
+        name: '陨石术',
+        type: 'active',
+        maxLevel: 5,
+        unlockCost: 22,
+        unlockDesc: '“延迟爆发”主动：给玩家一个“预判换位”的高级玩法。',
+        cooldown: 9,
+        getParams: (game, lvl, caster) => {
+            const cdr = Math.max(0, Math.min(0.6, (caster && caster.cdr) || 0));
+            const cdMul = (caster && caster.skillCdMul) ? caster.skillCdMul : 1;
+            const rawCd = Math.max(3.8, 9.6 - 0.7 * lvl);
+            const cooldown = Math.max(2.0, rawCd * (1 - cdr) * cdMul);
+            const radius = 140 + lvl * 18;
+            const delay = Math.max(0.55, 1.05 - 0.08 * lvl);
+            const dmg = (70 + lvl * 35) * ((caster && caster.skillDmgMul) ? caster.skillDmgMul : 1);
+            const burnDps = (lvl >= 4 ? (10 + lvl * 6) * ((caster && caster.skillDmgMul) ? caster.skillDmgMul : 1) : 0);
+            const burnDur = (lvl >= 4 ? 2.4 : 0);
+            return { cooldown, radius, delay, dmg, burnDps, burnDur };
+        },
+        desc: (lvl) => {
+            const rawCd = Math.max(3.8, 9.6 - 0.7 * lvl);
+            const radius = 140 + lvl * 18;
+            const delay = Math.max(0.55, 1.05 - 0.08 * lvl);
+            const dmg = 70 + lvl * 35;
+            const mech = (lvl >= 4 ? 'Lv.4+: 形成燃烧地面（持续伤害）' : '');
+            return `锁定落点，${delay.toFixed(2)}s 后坠落爆炸：半径 ${radius}，伤害 ${dmg}。CD≈${rawCd.toFixed(1)}s` + (mech ? `\n${mech}` : '');
+        },
+        onActivate: (game, lvl, params) => {
+            if (game && game.sfx) game.sfx.play('skill');
+            const p = params || SKILLS['meteor_strike'].getParams(game, lvl, game.player);
+            const target = game.findNearestEnemy(game.player.x, game.player.y, 900);
+            const x = target ? target.x : (game.player.x + (Math.random() - 0.5) * 260);
+            const y = target ? target.y : (game.player.y + (Math.random() - 0.5) * 260);
+            if (!game.delayedExplosions) game.delayedExplosions = [];
+            game.delayedExplosions.push({
+                t: 0,
+                delay: p.delay,
+                x, y,
+                r: p.radius,
+                dmg: p.dmg,
+                burnDps: p.burnDps,
+                burnDur: p.burnDur
+            });
+        }
     }
 };
 
@@ -626,11 +920,19 @@ const ITEMS = [
 
 class SaveManager {
     constructor() {
-        this.data = { points: 0, talents: {}, heirlooms: [] };
+        this.data = {
+            points: 0,
+            talents: {},
+            heirlooms: [],
+            // Meta progression: Skill shards + unlocked skills
+            skillShards: 0,
+            unlockedSkills: {} // { [skillId]: true }
+        };
         // 可由 Game 注入：用于购买成功/失败提示音等（避免在这里硬依赖 Game）
         this.onPurchaseTalent = null; // (ok:boolean)=>void
         this.onAddHeirloom = null; // ()=>void
         this.load();
+        this._ensureSkillUnlockDefaults();
     }
     load() {
         const s = localStorage.getItem('teemo_survivor_v3');
@@ -662,11 +964,54 @@ class SaveManager {
         }
     }
 
+    _ensureSkillUnlockDefaults() {
+        // 兼容旧存档：没有 unlockedSkills 时，默认解锁一批基础技能，保证局内升级池不为空。
+        if (!this.data.unlockedSkills || typeof this.data.unlockedSkills !== 'object') this.data.unlockedSkills = {};
+        if (typeof this.data.skillShards !== 'number') this.data.skillShards = 0;
+
+        const defaultUnlocked = [
+            'sharpness', 'quick_draw', 'vitality', 'split_shot',
+            'poison_nova', 'blinding_dart', 'mushroom_trap'
+        ];
+        defaultUnlocked.forEach(id => { this.data.unlockedSkills[id] = true; });
+        // 确保写回一次（仅在老存档首次升级到新版本时）
+        this.save();
+    }
+
+    addSkillShards(a) {
+        const add = Math.max(0, Math.floor(a || 0));
+        if (add <= 0) return;
+        this.data.skillShards = (this.data.skillShards || 0) + add;
+        this.save();
+        this.updateUI();
+    }
+
+    isSkillUnlocked(skillId) {
+        if (!skillId) return false;
+        if (!this.data.unlockedSkills) this.data.unlockedSkills = {};
+        return !!this.data.unlockedSkills[skillId];
+    }
+
+    unlockSkill(skillId) {
+        const def = SKILLS && SKILLS[skillId] ? SKILLS[skillId] : null;
+        if (!def) return false;
+        if (this.isSkillUnlocked(skillId)) return true;
+        const cost = Math.max(0, Math.floor(def.unlockCost || 0));
+        if ((this.data.skillShards || 0) < cost) return false;
+        this.data.skillShards -= cost;
+        this.data.unlockedSkills[skillId] = true;
+        this.save();
+        this.updateUI();
+        return true;
+    }
+
     updateUI() {
         const pointsEl = document.getElementById('meta-points');
         if (pointsEl) pointsEl.innerText = this.data.points;
         const shopPointsEl = document.getElementById('shop-points');
         if (shopPointsEl) shopPointsEl.innerText = this.data.points;
+        const shardsEl = document.getElementById('shop-skill-shards');
+        if (shardsEl) shardsEl.innerText = (this.data.skillShards || 0);
         
         ['strength', 'agility', 'magic'].forEach(cat => {
             const container = document.querySelector(`#tree-${cat} .talent-list`);
@@ -698,6 +1043,47 @@ class SaveManager {
         } else {
             hContainer.classList.add('hidden');
         }
+
+        // Skills unlock list (meta)
+        const sList = document.getElementById('skill-unlock-list');
+        if (sList && typeof SKILLS === 'object') {
+            const ids = Object.keys(SKILLS);
+            // 只展示设置了 unlockCost 的技能（0=默认解锁/免费，也会展示为已解锁）
+            const unlockables = ids
+                .map(id => ({ id, def: SKILLS[id] }))
+                .filter(s => s.def && (s.def.unlockCost !== undefined))
+                .sort((a, b) => (a.def.type === b.def.type ? 0 : (a.def.type === 'active' ? -1 : 1)) || ((a.def.unlockCost || 0) - (b.def.unlockCost || 0)));
+
+            sList.innerHTML = '';
+            unlockables.forEach(s => {
+                const def = s.def;
+                const unlocked = this.isSkillUnlocked(s.id) || (Math.floor(def.unlockCost || 0) === 0);
+                const cost = Math.max(0, Math.floor(def.unlockCost || 0));
+                const tag = def.type === 'active' ? '主动' : '被动';
+                const desc = def.unlockDesc || (def.desc ? def.desc(1) : (def.name || ''));
+                const div = document.createElement('div');
+                div.className = `skill-unlock-card ${unlocked ? 'unlocked' : 'locked'}`;
+                div.innerHTML = `
+                    <div class="skill-unlock-top">
+                        <div>
+                            <div class="skill-unlock-name">${def.name} <span class="skill-unlock-tag">(${tag})</span></div>
+                        </div>
+                        <div class="skill-unlock-cost">${unlocked ? '已解锁' : (cost === 0 ? '免费' : `碎片 ${cost}`)}</div>
+                    </div>
+                    <div class="skill-unlock-desc">${String(desc || '').replaceAll('<','&lt;').replaceAll('>','&gt;')}</div>
+                `;
+                div.onclick = () => {
+                    if (unlocked) return;
+                    const ok = this.unlockSkill(s.id);
+                    if (!ok) {
+                        // 余额不足：轻提示（不弹窗，避免打断）
+                        div.style.borderColor = 'rgba(255,82,82,0.6)';
+                        setTimeout(() => { div.style.borderColor = ''; }, 280);
+                    }
+                };
+                sList.appendChild(div);
+            });
+        }
     }
 }
 
@@ -719,6 +1105,7 @@ class Projectile {
         this.isEnemy = options.isEnemy || false;
         this.onHitPlayer = options.onHitPlayer;
         this.stunDuration = options.stunDuration;
+        this.dot = options.dot; // { dps, duration, slow }
         this.markedForDeletion = false;
 
         let angle = options.angle;
@@ -744,6 +1131,7 @@ class Projectile {
                     if (this.game && this.game.sfx && Math.random() < 0.22) this.game.sfx.play('hit');
                     this.markedForDeletion = true;
                     if (this.type === 'dart') { e.stunned = Math.max(e.stunned || 0, this.stunDuration || 1.0); }
+                    if (this.dot && e && typeof e.applyDot === 'function') e.applyDot(this.dot.dps || 0, this.dot.duration || 0, this.dot.slow || 0);
                     break;
                 }
             }
@@ -979,9 +1367,21 @@ class Enemy {
 
         this.attackTimer = 0;
         this.stunned = 0;
+        // Damage-over-time (skills)
+        this.dotTimer = 0;
+        this.dotDps = 0;
+        this.dotSlow = 0;
     }
 
     update(dt) {
+        // DOT tick: keep death handling consistent via takeDamage()
+        if (this.dotTimer > 0 && this.dotDps > 0) {
+            this.dotTimer -= dt;
+            const d = this.dotDps * dt;
+            if (d > 0) this.takeDamage(d);
+            if (this.markedForDeletion) return;
+            if (this.dotTimer <= 0) { this.dotTimer = 0; this.dotDps = 0; this.dotSlow = 0; }
+        }
         if (this.stunned > 0) {
             this.stunned -= dt;
             return;
@@ -1074,14 +1474,17 @@ class Enemy {
             }
         }
 
+        // DOT slow influences movement
+        const dotSlowMul = (this.dotSlow > 0 ? (1 - Math.min(0.65, this.dotSlow)) : 1);
+
         if (this.isRanged) {
             if (dist > this.attackRange * 0.8) {
-                this.x += (dx / dist) * this.speed * speedMulNow * dt;
-                this.y += (dy / dist) * this.speed * speedMulNow * dt;
+                this.x += (dx / dist) * this.speed * speedMulNow * dotSlowMul * dt;
+                this.y += (dy / dist) * this.speed * speedMulNow * dotSlowMul * dt;
             } else if (dist < this.attackRange * 0.5) {
                 // Back away
-                this.x -= (dx / dist) * this.speed * 0.5 * speedMulNow * dt;
-                this.y -= (dy / dist) * this.speed * 0.5 * speedMulNow * dt;
+                this.x -= (dx / dist) * this.speed * 0.5 * speedMulNow * dotSlowMul * dt;
+                this.y -= (dy / dist) * this.speed * 0.5 * speedMulNow * dotSlowMul * dt;
             }
             
             this.attackTimer += dt;
@@ -1108,13 +1511,22 @@ class Enemy {
         } else {
             // Melee
             if (dist > 0) {
-                this.x += (dx / dist) * this.speed * speedMulNow * dt;
-                this.y += (dy / dist) * this.speed * speedMulNow * dt;
+                this.x += (dx / dist) * this.speed * speedMulNow * dotSlowMul * dt;
+                this.y += (dy / dist) * this.speed * speedMulNow * dotSlowMul * dt;
             }
             if (checkCollision(this, this.game.player)) {
                 this.game.player.takeDamage(this.damage * dt);
             }
         }
+    }
+
+    applyDot(dps, duration, slow) {
+        const dur = Math.max(0, duration || 0);
+        const dd = Math.max(0, dps || 0);
+        if (dur <= 0 || dd <= 0) return;
+        this.dotTimer = Math.max(this.dotTimer || 0, dur);
+        this.dotDps = Math.max(this.dotDps || 0, dd);
+        this.dotSlow = Math.max(this.dotSlow || 0, Math.max(0, slow || 0));
     }
 
     updateBossBehavior(dt, dist, dx, dy) {
@@ -1452,6 +1864,9 @@ class Player {
         this.statusSlowTimer = 0;
         this.statusSlowMul = 1;
         this.statusBlindTimer = 0;
+        // Kill-haste (from skills like adrenaline)
+        this.killHasteTimer = 0;
+        this.killHasteStacks = 0;
 
         // Talents
         const t = game.saveManager.data.talents;
@@ -1494,6 +1909,10 @@ class Player {
         this.attackCooldown = this.baseAttackCooldown * this.baseAttackCooldownMul;
         this.splitShotCount = 0;
         this.killHeal = 0;
+        this.skillDmgMul = 1;
+        this.skillCdMul = 1;
+        this.poisonOnHit = null;
+        this.killHaste = null;
         
         // Level-based attack interval (gentler early scaling, diminishing returns)
         // lvl 1 => 1.00, lvl 10 => ~0.93, lvl 25 => ~0.83, lvl 50 => ~0.71 (then cap)
@@ -1513,6 +1932,7 @@ class Player {
             if (s.damageReduction) this.damageReduction += s.damageReduction * mul;
             if (s.cdr) this.attackCooldown *= (1 - s.cdr * 0.5 * mul);
             if (s.killHeal) this.killHeal = (this.killHeal || 0) + s.killHeal * mul;
+            if (s.skillDmg) this.skillDmgMul *= (1 + s.skillDmg * mul);
         });
         
         this.attackCooldown *= (1 - this.cdr);
@@ -1531,6 +1951,13 @@ class Player {
         // Status timers
         if (this.statusSlowTimer > 0) this.statusSlowTimer -= dt;
         if (this.statusBlindTimer > 0) this.statusBlindTimer -= dt;
+        if (this.killHasteTimer > 0) {
+            this.killHasteTimer -= dt;
+            if (this.killHasteTimer <= 0) {
+                this.killHasteTimer = 0;
+                this.killHasteStacks = 0;
+            }
+        }
 
         const moveMul = (this.statusSlowTimer > 0 ? this.statusSlowMul : 1) * (this.statusBlindTimer > 0 ? 0.85 : 1);
         const effectiveSpeed = this.speed * moveMul;
@@ -1561,7 +1988,12 @@ class Player {
 
         this.attackTimer += dt;
         const blindAtkMul = (this.statusBlindTimer > 0 ? 1.3 : 1);
-        if (this.attackTimer >= this.attackCooldown * blindAtkMul) this.autoAttack();
+        // Dynamic attack speed from kill buffs (avoid requiring recalcStats to take effect)
+        let atkCd = this.attackCooldown;
+        if (this.killHasteStacks > 0 && this.killHaste && this.killHaste.mul) {
+            atkCd /= Math.pow(this.killHaste.mul, this.killHasteStacks);
+        }
+        if (this.attackTimer >= atkCd * blindAtkMul) this.autoAttack();
 
         Object.keys(this.skills).forEach(id => {
             if (SKILLS[id].type === 'active') {
@@ -1583,17 +2015,31 @@ class Player {
         const target = this.game.findNearestEnemy(this.x, this.y, 400);
         if (target) {
             const angle = Math.atan2(target.y - this.y, target.x - this.x);
-            this.game.projectiles.push(new Projectile(this.game, this.x, this.y, target, { angle }));
+            this.game.projectiles.push(new Projectile(this.game, this.x, this.y, target, {
+                angle,
+                damage: this.damage,
+                speed: this.projectileSpeed,
+                dot: this.poisonOnHit ? { ...this.poisonOnHit } : null
+            }));
             // 战斗音效：发射（概率触发 + 限流，避免嘈杂）
             if (this.game && this.game.sfx && Math.random() < 0.28) this.game.sfx.play('shot');
             if (this.splitShotCount > 0) {
                 const spread = 0.3;
                 for (let i = 1; i <= this.splitShotCount; i++) {
-                    this.game.projectiles.push(new Projectile(this.game, this.x, this.y, null, { angle: angle + spread * i, damage: this.damage * 0.5, radius: 3 }));
-                    this.game.projectiles.push(new Projectile(this.game, this.x, this.y, null, { angle: angle - spread * i, damage: this.damage * 0.5, radius: 3 }));
+                    const dot = this.poisonOnHit ? { ...this.poisonOnHit, dps: (this.poisonOnHit.dps || 0) * 0.6 } : null;
+                    this.game.projectiles.push(new Projectile(this.game, this.x, this.y, null, { angle: angle + spread * i, damage: this.damage * 0.5, radius: 3, speed: this.projectileSpeed, dot }));
+                    this.game.projectiles.push(new Projectile(this.game, this.x, this.y, null, { angle: angle - spread * i, damage: this.damage * 0.5, radius: 3, speed: this.projectileSpeed, dot }));
                 }
             }
             this.attackTimer = 0;
+        }
+    }
+
+    onKill(enemy) {
+        if (this.killHaste && this.killHaste.duration && this.killHaste.mul) {
+            const maxStacks = Math.max(1, this.killHaste.maxStacks || 1);
+            this.killHasteStacks = Math.min(maxStacks, (this.killHasteStacks || 0) + 1);
+            this.killHasteTimer = Math.max(this.killHasteTimer || 0, this.killHaste.duration);
         }
     }
 
@@ -1757,9 +2203,24 @@ class Game {
         this.enemyCountScale = 1.0;
         // Bosses defeated this run -> elite blueprints that can appear later
         // 精英池跨关卡保留：Boss 击败后会把“弱化版本”加入池子，在后续关卡稀有出现
+        // 轻量技能特效（用于连锁闪电等）
+        this.skillFx = [];
+        // 延迟爆发（陨石术）
+        this.delayedExplosions = [];
         this.loop = this.loop.bind(this);
         this.lastTime = performance.now(); // Init lastTime before loop
         requestAnimationFrame(this.loop);
+    }
+
+    addSkillFxLine(x1, y1, x2, y2, color) {
+        if (!this.skillFx) this.skillFx = [];
+        this.skillFx.push({
+            t: 0,
+            d: 0.12,
+            type: 'line',
+            x1, y1, x2, y2,
+            c: color || 'rgba(255,255,255,0.8)'
+        });
     }
 
     setupMobileControls() {
@@ -1988,7 +2449,8 @@ class Game {
 
     startGameSetup() {
         // Step 1: Pick a random bonus skill
-        const skillIds = Object.keys(SKILLS);
+        let skillIds = Object.keys(SKILLS).filter(id => this.saveManager && this.saveManager.isSkillUnlocked(id));
+        if (!skillIds || skillIds.length === 0) skillIds = Object.keys(SKILLS);
         const randomId = skillIds[Math.floor(Math.random() * skillIds.length)];
         this.bonusSkillId = randomId;
         
@@ -2401,6 +2863,55 @@ class Game {
         this.mushrooms = this.mushrooms.filter(m => !m.markedForDeletion);
         this.potions.forEach(p => p.update(dt));
         this.potions = this.potions.filter(p => !p.markedForDeletion);
+
+        // Skill FX update
+        if (this.skillFx && this.skillFx.length > 0) {
+            this.skillFx.forEach(f => f.t += dt);
+            this.skillFx = this.skillFx.filter(f => f.t < f.d);
+        }
+
+        // Delayed explosions (meteor)
+        if (this.delayedExplosions && this.delayedExplosions.length > 0) {
+            for (const m of this.delayedExplosions) m.t += dt;
+            const ready = this.delayedExplosions.filter(m => m.t >= m.delay);
+            this.delayedExplosions = this.delayedExplosions.filter(m => m.t < m.delay);
+            ready.forEach(m => {
+                this.createAoE(m.x, m.y, m.r, 0.15, 0, 'rgba(255, 152, 0, 0.25)', 'enemies', {
+                    tickInterval: 0.06,
+                    onTickEnemy: (g, e) => {
+                        e.takeDamage(m.dmg);
+                        if (m.burnDps > 0 && m.burnDur > 0 && typeof e.applyDot === 'function') {
+                            e.applyDot(m.burnDps, m.burnDur, 0);
+                        }
+                    }
+                });
+                // Impact flash line (small)
+                this.addSkillFxLine(m.x - 20, m.y - 20, m.x + 20, m.y + 20, 'rgba(255,152,0,0.85)');
+                this.addSkillFxLine(m.x - 20, m.y + 20, m.x + 20, m.y - 20, 'rgba(255,152,0,0.85)');
+            });
+        }
+
+        // Blade storm return wave (stored as skillFx entries with negative t)
+        if (this.skillFx && this.skillFx.length > 0) {
+            for (const f of this.skillFx) {
+                if (f.type === 'blade_return' && f.t >= 0 && !f._done) {
+                    f._done = true;
+                    const p = f.p;
+                    const baseX = f.x, baseY = f.y;
+                    for (let i = 0; i < p.blades; i++) {
+                        const ang = (i / p.blades) * Math.PI * 2 + (Math.PI / p.blades);
+                        this.projectiles.push(new Projectile(this, baseX, baseY, null, {
+                            angle: ang,
+                            damage: p.dmg * 0.75,
+                            speed: p.speed * 0.95,
+                            radius: p.radius,
+                            color: 'rgba(255, 241, 118, 0.92)',
+                            dot: (this.player && this.player.poisonOnHit) ? { ...this.player.poisonOnHit, dps: (this.player.poisonOnHit.dps || 0) * 0.4 } : null
+                        }));
+                    }
+                }
+            }
+        }
         
         if (this.bossActive && this.bossRef && !this.bossRef.markedForDeletion) {
              const bar = document.getElementById('boss-hp-bar');
@@ -2585,6 +3096,19 @@ class Game {
         if (this.comboCount > 0 && this.comboCount % 30 === 0) {
             this.triggerFrenzy();
         }
+
+        // Player kill triggers (build synergies)
+        if (this.player && typeof this.player.onKill === 'function') this.player.onKill(enemy);
+
+        // Skill shards (small drip): elites > normal. Boss handled in bossDefeated().
+        if (this.saveManager) {
+            if (enemy && enemy.type === 'elite') {
+                this.saveManager.addSkillShards(2);
+            } else if (enemy && enemy.type !== 'boss') {
+                // 轻度随机掉落，避免刷屏
+                if (Math.random() < 0.06) this.saveManager.addSkillShards(1);
+            }
+        }
     }
 
     triggerFrenzy() {
@@ -2595,6 +3119,8 @@ class Game {
         
         // Reward: Heal a bit
         this.player.heal(10);
+        // Reward: small shards drip for milestone
+        this.saveManager?.addSkillShards(1);
     }
 
     updateComboUI() {
@@ -2630,6 +3156,8 @@ class Game {
         document.getElementById('boss-hp-container').classList.add('hidden');
         this.registerEliteFromBoss(boss);
         this.saveManager.addPoints(100 * this.stage);
+        // Boss 奖励：技能碎片（关卡外解锁用）
+        this.saveManager.addSkillShards(6 + Math.floor(this.stage * 2));
         this.state = 'PAUSED';
         this.pendingLootItem = this.generateLoot();
         
@@ -2786,7 +3314,11 @@ class Game {
                     if (target === 'player' || target === 'both') {
                         const p = g.player;
                         if (p && Math.sqrt((p.x - this.x) ** 2 + (p.y - this.y) ** 2) < this.r + p.radius) {
-                            p.takeDamage(this.dmg);
+                            if (opts.playerDamage === false) {
+                                // allow support zones (heal/buff) without forcing damage floor
+                            } else {
+                                p.takeDamage(this.dmg);
+                            }
                             if (opts.onTickPlayer) opts.onTickPlayer(g, p, this);
                         }
                     }
@@ -2997,7 +3529,9 @@ class Game {
         const m = document.getElementById('upgrade-modal');
         const c = document.getElementById('upgrade-options');
         c.innerHTML = '';
-        const pool = Object.keys(SKILLS).filter(k => (this.player.skills[k]||0) < SKILLS[k].maxLevel);
+        const pool = Object.keys(SKILLS)
+            .filter(k => this.saveManager && this.saveManager.isSkillUnlocked(k))
+            .filter(k => (this.player.skills[k] || 0) < SKILLS[k].maxLevel);
         const picks = [];
         for(let i=0; i<3 && pool.length>0; i++) {
             const idx = Math.floor(Math.random()*pool.length);
@@ -3156,6 +3690,39 @@ class Game {
         this.expOrbs.forEach(e => e.draw(this.ctx));
         this.enemies.forEach(e => e.draw(this.ctx));
         this.projectiles.forEach(p => p.draw(this.ctx));
+
+        // Skill FX (world space)
+        if (this.skillFx && this.skillFx.length > 0) {
+            for (const f of this.skillFx) {
+                if (f.type === 'line') {
+                    const a = 1 - (f.t / Math.max(0.001, f.d));
+                    this.ctx.save();
+                    this.ctx.globalAlpha = 0.75 * a;
+                    this.ctx.strokeStyle = f.c || 'rgba(255,255,255,0.8)';
+                    this.ctx.lineWidth = 3;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(f.x1, f.y1);
+                    this.ctx.lineTo(f.x2, f.y2);
+                    this.ctx.stroke();
+                    this.ctx.restore();
+                }
+            }
+        }
+
+        // Delayed explosion telegraph (meteor)
+        if (this.delayedExplosions && this.delayedExplosions.length > 0) {
+            for (const m of this.delayedExplosions) {
+                const p = Math.max(0, Math.min(1, (m.t || 0) / Math.max(0.001, m.delay || 1)));
+                this.ctx.save();
+                this.ctx.globalAlpha = 0.12 + 0.22 * p;
+                this.ctx.strokeStyle = 'rgba(255, 82, 82, 0.85)';
+                this.ctx.lineWidth = 4;
+                this.ctx.beginPath();
+                this.ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
+                this.ctx.stroke();
+                this.ctx.restore();
+            }
+        }
         if (this.player) this.player.draw(this.ctx);
 
         this.ctx.restore();

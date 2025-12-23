@@ -196,6 +196,56 @@ body {
 #tree-agility { border-top-color: #4CAF50; }
 #tree-magic { border-top-color: #2196F3; }
 
+#skill-unlock-section {
+    width: 85%;
+    max-width: 1100px;
+    margin: 8px 0 16px 0;
+    padding: 14px 16px;
+    border-radius: 12px;
+    background: rgba(0,0,0,0.45);
+    border: 1px solid rgba(255,255,255,0.14);
+    box-shadow: 0 12px 30px rgba(0,0,0,0.35);
+}
+#skill-unlock-section h3 {
+    margin: 0 0 8px 0;
+    color: #ffd700;
+}
+.skill-unlock-hint {
+    font-size: 12px;
+    color: rgba(255,255,255,0.75);
+    margin-bottom: 10px;
+    line-height: 1.4;
+}
+#skill-unlock-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 10px;
+    max-height: 24vh;
+    overflow: auto;
+    padding-right: 6px;
+}
+.skill-unlock-card {
+    background: rgba(0,0,0,0.35);
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 10px;
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+.skill-unlock-card:hover { transform: translateY(-2px); border-color: rgba(255,215,0,0.35); background: rgba(0,0,0,0.45); }
+.skill-unlock-card.locked { opacity: 0.92; }
+.skill-unlock-card.unlocked { border-color: rgba(0,230,118,0.35); box-shadow: 0 0 0 1px rgba(0,230,118,0.18) inset; }
+.skill-unlock-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+}
+.skill-unlock-name { font-weight: 900; color: #fff; }
+.skill-unlock-cost { font-size: 12px; font-weight: 900; color: #80DEEA; }
+.skill-unlock-desc { margin-top: 6px; font-size: 12px; color: rgba(255,255,255,0.75); line-height: 1.35; white-space: pre-line; }
+.skill-unlock-tag { font-size: 11px; font-weight: 900; color: rgba(255,255,255,0.7); }
+
 .talent-node {
     background-color: #444; padding: 10px; border-radius: 5px; margin-bottom: 10px;
     cursor: pointer; border: 1px solid #666; transition: all 0.2s; position: relative;
