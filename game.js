@@ -880,20 +880,37 @@ class Enemy {
         this.game = game;
         this.type = config.type;
         this.markedForDeletion = false;
+
+        // Special behaviors (optional)
+        this.behavior = config.behavior || null; // 'kamikaze' | 'trail_poison' | 'blink' | null
+        this.explode = config.explode || null;   // { radius, damage, triggerDist, duration, color, slow?:{duration,speedMul} }
+        this.split = config.split || null;       // { count, childConfig }
+        this.aura = config.aura || null;         // { radius, heal, interval, color }
+        this.trail = config.trail || null;       // { interval, radius, duration, damage, tickInterval, color }
+        this.dmgTakenMul = (config.dmgTakenMul !== undefined ? config.dmgTakenMul : 1); // incoming damage multiplier (<1 => tanky)
+        this.rangedProfile = config.rangedProfile || null; // { cooldown, projSpeed, color, radius, onHitSlow?, onHitBlind? }
+        this.leap = config.leap || null;         // { cooldown, duration, speedMul }
+        this.blinkCd = (config.blinkCd !== undefined ? config.blinkCd : (config.blink && config.blink.cooldown ? config.blink.cooldown : null));
+        this._specialTimers = { aura: 0, trail: 0, blink: 0, leapCd: 0, leapActive: 0 };
         
         // Spawn logic: spawn outside current viewport around player (world space)
-        const p = 220;
-        const viewR = Math.hypot(game.width, game.height) / 2;
-        const spawnDist = viewR + p + Math.random() * 220;
-        const ang = Math.random() * Math.PI * 2;
-        const px = (game.player ? game.player.x : game.worldWidth / 2);
-        const py = (game.player ? game.player.y : game.worldHeight / 2);
-        let sx = px + Math.cos(ang) * spawnDist;
-        let sy = py + Math.sin(ang) * spawnDist;
-        // Clamp to world bounds (+padding to avoid spawning "inside" walls)
-        sx = Math.max(p, Math.min(game.worldWidth - p, sx));
-        sy = Math.max(p, Math.min(game.worldHeight - p, sy));
-        this.x = sx; this.y = sy;
+        if (config.spawnAt && typeof config.spawnAt.x === 'number' && typeof config.spawnAt.y === 'number') {
+            this.x = config.spawnAt.x;
+            this.y = config.spawnAt.y;
+        } else {
+            const p = 220;
+            const viewR = Math.hypot(game.width, game.height) / 2;
+            const spawnDist = viewR + p + Math.random() * 220;
+            const ang = Math.random() * Math.PI * 2;
+            const px = (game.player ? game.player.x : game.worldWidth / 2);
+            const py = (game.player ? game.player.y : game.worldHeight / 2);
+            let sx = px + Math.cos(ang) * spawnDist;
+            let sy = py + Math.sin(ang) * spawnDist;
+            // Clamp to world bounds (+padding to avoid spawning "inside" walls)
+            sx = Math.max(p, Math.min(game.worldWidth - p, sx));
+            sy = Math.max(p, Math.min(game.worldHeight - p, sy));
+            this.x = sx; this.y = sy;
+        }
 
         // Base Config
         this.baseHp = config.hp || 20;
@@ -972,28 +989,119 @@ class Enemy {
             return;
         }
 
-        if (this.isRanged) {
-            if (dist > this.attackRange * 0.8) {
+        // Special: blink/teleport around player (keeps pressure without speed spam)
+        if (this.behavior === 'blink') {
+            const cd = (this.blinkCd || 3.2);
+            this._specialTimers.blink += dt;
+            if (this._specialTimers.blink >= cd) {
+                this._specialTimers.blink = 0;
+                const p = this.game.player;
+                const ang = Math.random() * Math.PI * 2;
+                const r = 220 + Math.random() * 160;
+                const pad = 220;
+                this.x = Math.max(pad, Math.min(this.game.worldWidth - pad, p.x + Math.cos(ang) * r));
+                this.y = Math.max(pad, Math.min(this.game.worldHeight - pad, p.y + Math.sin(ang) * r));
+            }
+            // still chase after blink to keep it readable
+        }
+
+        // Special: kamikaze (suicide bomber)
+        if (this.behavior === 'kamikaze' && this.explode) {
+            if (dist > 0.0001) {
                 this.x += (dx / dist) * this.speed * dt;
                 this.y += (dy / dist) * this.speed * dt;
+            }
+            const trigger = Math.max(this.radius + this.game.player.radius + 4, this.explode.triggerDist || 0);
+            if (dist <= trigger || checkCollision(this, this.game.player)) {
+                this.markedForDeletion = true;
+                const baseDmg = (this.explode.damage !== undefined ? this.explode.damage : (this.damage * 2));
+                const scaledDmg = baseDmg * (1 + this.level * 0.04);
+                this.game.createAoE(this.x, this.y, this.explode.radius || 110, this.explode.duration || 0.25, scaledDmg, this.explode.color || 'rgba(255, 82, 82, 0.45)', 'player');
+                if (this.explode.slow) this.game.applyPlayerSlow(this.explode.slow.duration || 0.9, this.explode.slow.speedMul || 0.7);
+            }
+            return;
+        }
+
+        // Special: poison trail
+        if (this.behavior === 'trail_poison' && this.trail) {
+            this._specialTimers.trail += dt;
+            if (this._specialTimers.trail >= (this.trail.interval || 0.9)) {
+                this._specialTimers.trail = 0;
+                const baseDmg = (this.trail.damage !== undefined ? this.trail.damage : 4);
+                const scaledDmg = baseDmg * (1 + this.level * 0.03);
+                this.game.createAoE(this.x, this.y, this.trail.radius || 90, this.trail.duration || 2.2, scaledDmg, this.trail.color || 'rgba(156, 204, 101, 0.26)', 'player', {
+                    tickInterval: (this.trail.tickInterval || 0.45),
+                });
+            }
+        }
+
+        // Special: healer aura (heal nearby enemies periodically)
+        if (this.aura) {
+            this._specialTimers.aura += dt;
+            if (this._specialTimers.aura >= (this.aura.interval || 0.8)) {
+                this._specialTimers.aura = 0;
+                const r = this.aura.radius || 180;
+                const healBase = (this.aura.heal !== undefined ? this.aura.heal : 8);
+                const heal = healBase * (1 + this.level * 0.02);
+                for (const e of this.game.enemies) {
+                    if (e === this || e.markedForDeletion) continue;
+                    if (e.type === 'boss') continue;
+                    const dd = Math.hypot(e.x - this.x, e.y - this.y);
+                    if (dd <= r) e.hp = Math.min(e.maxHp, e.hp + heal);
+                }
+            }
+        }
+
+        // Special: leap burst (short dash windows)
+        let speedMulNow = 1;
+        if (this.leap) {
+            this._specialTimers.leapCd += dt;
+            if (this._specialTimers.leapActive > 0) {
+                this._specialTimers.leapActive -= dt;
+                speedMulNow = this.leap.speedMul || 2.2;
+            } else if (this._specialTimers.leapCd >= (this.leap.cooldown || 3.5)) {
+                this._specialTimers.leapCd = 0;
+                this._specialTimers.leapActive = (this.leap.duration || 0.65);
+                speedMulNow = this.leap.speedMul || 2.2;
+            }
+        }
+
+        if (this.isRanged) {
+            if (dist > this.attackRange * 0.8) {
+                this.x += (dx / dist) * this.speed * speedMulNow * dt;
+                this.y += (dy / dist) * this.speed * speedMulNow * dt;
             } else if (dist < this.attackRange * 0.5) {
                 // Back away
-                this.x -= (dx / dist) * this.speed * 0.5 * dt;
-                this.y -= (dy / dist) * this.speed * 0.5 * dt;
+                this.x -= (dx / dist) * this.speed * 0.5 * speedMulNow * dt;
+                this.y -= (dy / dist) * this.speed * 0.5 * speedMulNow * dt;
             }
             
             this.attackTimer += dt;
-            if (this.attackTimer > 2.0 && dist < this.attackRange) {
+            const cd = (this.rangedProfile && this.rangedProfile.cooldown) ? this.rangedProfile.cooldown : 2.0;
+            if (this.attackTimer > cd && dist < this.attackRange) {
+                const projColor = (this.rangedProfile && this.rangedProfile.color) ? this.rangedProfile.color : 'orange';
+                const projSpeed = (this.rangedProfile && this.rangedProfile.projSpeed) ? this.rangedProfile.projSpeed : 300;
+                const projRadius = (this.rangedProfile && this.rangedProfile.radius) ? this.rangedProfile.radius : 5;
+                const onHitSlow = (this.rangedProfile && this.rangedProfile.onHitSlow) ? this.rangedProfile.onHitSlow : null;
+                const onHitBlind = (this.rangedProfile && this.rangedProfile.onHitBlind) ? this.rangedProfile.onHitBlind : null;
                 this.game.projectiles.push(new Projectile(this.game, this.x, this.y, this.game.player, {
-                    isEnemy: true, color: 'orange', damage: this.damage, speed: 300
+                    isEnemy: true,
+                    color: projColor,
+                    damage: this.damage,
+                    speed: projSpeed,
+                    radius: projRadius,
+                    onHitPlayer: (g) => {
+                        if (onHitSlow) g.applyPlayerSlow(onHitSlow.duration || 1.0, onHitSlow.speedMul || 0.75);
+                        if (onHitBlind) g.applyPlayerBlind(onHitBlind.duration || 0.9);
+                    }
                 }));
                 this.attackTimer = 0;
             }
         } else {
             // Melee
             if (dist > 0) {
-                this.x += (dx / dist) * this.speed * dt;
-                this.y += (dy / dist) * this.speed * dt;
+                this.x += (dx / dist) * this.speed * speedMulNow * dt;
+                this.y += (dy / dist) * this.speed * speedMulNow * dt;
             }
             if (checkCollision(this, this.game.player)) {
                 this.game.player.takeDamage(this.damage * dt);
@@ -1093,8 +1201,21 @@ class Enemy {
     }
 
     takeDamage(amt) {
-        this.hp -= amt;
+        const mul = (this.dmgTakenMul !== undefined ? this.dmgTakenMul : 1);
+        this.hp -= amt * mul;
         if (this.hp <= 0) {
+            // Split-on-death (spawn children at current location)
+            if (this.split && this.split.count && this.split.childConfig) {
+                const count = Math.max(1, Math.min(6, this.split.count));
+                for (let i = 0; i < count; i++) {
+                    const ang = Math.random() * Math.PI * 2;
+                    const rr = 18 + Math.random() * 18;
+                    const cx = this.x + Math.cos(ang) * rr;
+                    const cy = this.y + Math.sin(ang) * rr;
+                    const childCfg = { ...this.split.childConfig, spawnAt: { x: cx, y: cy } };
+                    this.game.enemies.push(new Enemy(this.game, childCfg));
+                }
+            }
             this.markedForDeletion = true;
             this.game.createExpOrb(this.x, this.y, this.exp);
             this.game.onEnemyKilled(this);
@@ -1404,6 +1525,12 @@ class Game {
         document.getElementById('quit-btn').onclick = () => { this.sfx.play('close'); this.returnToMenu(); };
         document.getElementById('stats-btn').onclick = () => { this.togglePause(); };
 
+        // 大厅按钮（关卡间）
+        const lobbyNext = document.getElementById('lobby-next-btn');
+        if (lobbyNext) lobbyNext.onclick = () => { this.sfx.play('start'); this.startNextStageFromLobby(); };
+        const lobbyMenu = document.getElementById('lobby-menu-btn');
+        if (lobbyMenu) lobbyMenu.onclick = () => { this.sfx.play('close'); this.returnToMenu(); };
+
         // 音效开关按钮（HUD 顶栏）
         const soundBtn = document.getElementById('sound-btn');
         if (soundBtn) {
@@ -1675,30 +1802,44 @@ class Game {
     }
 
     startGame() {
-        this.state = 'PLAYING';
-        this.updateMobileControlsVisibility();
+        // 从“轮回馈赠”确认进入第一关
         document.getElementById('start-bonus-modal').classList.add('hidden');
-        document.getElementById('game-container').classList.remove('hidden');
         document.getElementById('game-over-modal').classList.add('hidden');
+        const lobby = document.getElementById('lobby-screen');
+        if (lobby) lobby.classList.add('hidden');
+        document.getElementById('game-container').classList.remove('hidden');
 
-        this.stage = 1;
-        this.wave = 1;
         // 每关波数：提高波次数量，减少“慢热 -> 突刺”的体感
         this.wavesTotal = 15;
-        this.gameTime = 0;
-        this.waveTimer = 0;
         // 单波时长略缩短，让节奏更连贯（总时长≈15*18=270s 再加Boss）
         this.waveDuration = 18;
+
+        this.startStage(1, { resetPlayer: true, applyBonusSkill: true });
+    }
+
+    // 每一关开始时：重置玩家等级/经验/技能/本关装备（保留天赋与传家宝）
+    startStage(stageNumber, opts = {}) {
+        this.stage = Math.max(1, stageNumber || 1);
+        this.wave = 1;
+        this.gameTime = 0;
+        this.waveTimer = 0;
 
         this.comboCount = 0;
         this.comboTimer = 0;
         this.frenzyActive = false;
         this.frenzyTimer = 0;
 
-        // (Re)initialize a big world each run so you can roam on mobile comfortably.
+        // (Re)initialize a big world each stage so you can roam on mobile comfortably.
         this.worldWidth = Math.max(2400, this.width * 4);
         this.worldHeight = Math.max(2400, this.height * 4);
-        this.player = new Player(this);
+
+        if (opts.resetPlayer) {
+            this.player = new Player(this);
+            if (opts.applyBonusSkill && this.bonusSkillId) {
+                this.player.skills[this.bonusSkillId] = 1;
+                this.player.recalculateStats();
+            }
+        }
 
         // Reset camera near player so the first frame doesn't "jump".
         const scale = (this.mobileControls && this.mobileControls.isMobile) ? 0.80 : 1.0;
@@ -1706,23 +1847,25 @@ class Game {
         const viewWorldH = this.height / scale;
         this.cameraX = Math.max(0, Math.min(this.worldWidth - viewWorldW, this.player.x - viewWorldW / 2));
         this.cameraY = Math.max(0, Math.min(this.worldHeight - viewWorldH, this.player.y - viewWorldH / 2));
-        
-        // Apply Bonus Skill
-        if (this.bonusSkillId) {
-            this.player.skills[this.bonusSkillId] = 1;
-            this.player.recalculateStats();
-        }
 
-        this.enemies = []; this.projectiles = []; this.expOrbs = []; 
+        // Stage objects reset
+        this.enemies = []; this.projectiles = []; this.expOrbs = [];
         this.aoeZones = []; this.mushrooms = []; this.potions = [];
-        this.spawnTimer = 0; 
-        // 刷怪预算：按 dt 累积，连续刷，避免“到点一坨”
+        this.spawnTimer = 0;
         this.spawnBudget = 0;
-        // 平滑强度（用于生成刷怪速度/数量）：避免瞬间跳变
         this.intensitySmooth = 0;
         this.bossActive = false;
         this.bossRef = null;
-        
+        this.eliteBlueprints = [];
+        document.getElementById('boss-hp-container').classList.add('hidden');
+
+        // UI
+        const lobby = document.getElementById('lobby-screen');
+        if (lobby) lobby.classList.add('hidden');
+        document.getElementById('game-container').classList.remove('hidden');
+
+        this.state = 'PLAYING';
+        this.updateMobileControlsVisibility();
         this.lastTime = performance.now();
         this.updateHUDInventory();
         this.updateHUDWave();
@@ -1731,21 +1874,104 @@ class Game {
     }
 
     nextStage() {
-        this.stage++;
-        this.wave = 1;
-        this.waveTimer = 0;
-        this.spawnTimer = 0;
-        this.spawnBudget = 0;
-        document.getElementById('stage-clear-modal').classList.add('hidden');
-        this.state = 'PLAYING';
+        // 过关后回大厅，由大厅按钮进入下一关
+        this.openLobby();
+    }
+
+    startNextStageFromLobby() {
+        this.startStage(this.stage + 1, { resetPlayer: true });
+    }
+
+    openLobby() {
+        this.state = 'LOBBY';
         this.updateMobileControlsVisibility();
-        this.lastTime = performance.now();
-        this.updateHUDWave();
+
+        document.getElementById('stage-clear-modal').classList.add('hidden'); // legacy 兼容
+        document.getElementById('game-container').classList.add('hidden');
+        const lobby = document.getElementById('lobby-screen');
+        if (lobby) lobby.classList.remove('hidden');
+
+        const clearedEl = document.getElementById('lobby-cleared-stage');
+        if (clearedEl) clearedEl.innerText = this.stage;
+        const nextEl = document.getElementById('lobby-next-stage');
+        if (nextEl) nextEl.innerText = this.stage + 1;
+        this.renderLobbyEnemyList(this.stage + 1);
+    }
+
+    getStageEnemyPool(stageNumber) {
+        const s = Math.max(1, stageNumber || this.stage || 1);
+        // 每关怪物池：主力怪（旧怪）为主，新增机制怪少量点缀（更“省着用”）
+        // - allowed: 允许出现的类型
+        // - weights: 生成权重（越大越常见）
+        // - labels: 大厅展示用（尽量短，突出“本关新增”）
+        if (s === 1) {
+            return {
+                allowed: ['basic'],
+                weights: { basic: 18 },
+                labels: ['主力：基础怪（红团子）']
+            };
+        }
+        if (s === 2) {
+            return {
+                allowed: ['basic', 'runner', 'tank', 'splitter'],
+                weights: { basic: 14, runner: 5, tank: 3, splitter: 2 },
+                labels: ['主力：基础/迅捷/坦克', '新增：分裂怪（少量）']
+            };
+        }
+        if (s === 3) {
+            return {
+                allowed: ['basic', 'runner', 'tank', 'ranger', 'poisoner'],
+                weights: { basic: 10, runner: 5, tank: 4, ranger: 3, poisoner: 2 },
+                labels: ['主力：基础/迅捷/坦克/远程', '新增：毒池怪（少量）']
+            };
+        }
+        if (s === 4) {
+            return {
+                allowed: ['basic', 'runner', 'tank', 'ranger', 'healer'],
+                weights: { basic: 9, runner: 4, tank: 5, ranger: 4, healer: 2 },
+                labels: ['主力：基础/迅捷/坦克/远程', '新增：治疗祭司（少量）']
+            };
+        }
+        if (s === 5) {
+            return {
+                allowed: ['basic', 'runner', 'tank', 'ranger', 'kamikaze', 'shielded'],
+                weights: { basic: 9, runner: 5, tank: 4, ranger: 4, kamikaze: 2, shielded: 2 },
+                labels: ['主力：基础/迅捷/坦克/远程', '新增：自爆蜂/盾卫（少量）']
+            };
+        }
+        if (s === 6) {
+            return {
+                allowed: ['basic', 'runner', 'tank', 'ranger', 'kamikaze', 'splitter', 'healer', 'poisoner', 'shielded', 'sniper'],
+                weights: { basic: 8, runner: 5, tank: 4, ranger: 4, kamikaze: 2, splitter: 2, healer: 2, poisoner: 2, shielded: 2, sniper: 1 },
+                labels: ['主力：旧怪混合', '点缀：狙击手（稀有）']
+            };
+        }
+        // 7+：在“旧怪混合”基础上，偶尔刷出 warper（非常稀有）
+        return {
+            allowed: ['basic', 'runner', 'tank', 'ranger', 'kamikaze', 'splitter', 'healer', 'poisoner', 'shielded', 'sniper', 'warper'],
+            weights: { basic: 8, runner: 5, tank: 4, ranger: 4, kamikaze: 2, splitter: 2, healer: 2, poisoner: 2, shielded: 2, sniper: 1, warper: 1 },
+            labels: ['主力：旧怪混合', '点缀：狙击手/扭曲幽影（稀有）']
+        };
+    }
+
+    renderLobbyEnemyList(stageNumber) {
+        const listEl = document.getElementById('lobby-enemy-list');
+        if (!listEl) return;
+        const pool = this.getStageEnemyPool(stageNumber);
+        listEl.innerHTML = '';
+        (pool.labels || []).forEach(t => {
+            const div = document.createElement('div');
+            div.className = 'lobby-enemy-chip';
+            div.innerText = t;
+            listEl.appendChild(div);
+        });
     }
 
     returnToMenu() {
         this.state = 'MENU';
         this.updateMobileControlsVisibility();
+        const lobby = document.getElementById('lobby-screen');
+        if (lobby) lobby.classList.add('hidden');
         document.getElementById('game-container').classList.add('hidden');
         document.getElementById('main-menu').classList.remove('hidden');
         document.getElementById('pause-modal').classList.add('hidden');
@@ -1943,67 +2169,195 @@ class Game {
     }
 
     spawnEnemy() {
-        // Dynamic Difficulty Adjustment System
-        const diffFactor = this.getDifficultyFactor(); // -1 to 1
         const player = this.player;
-        
-        // Analyze Player Weakness
-        const isSlow = player.speed < 220;
-        const isLowDmg = (player.damage / player.attackCooldown) < 50; 
-        const isSquishy = player.maxHp < 200;
 
-        // Base Weights (+ elite pool)
-        let weights = { 'basic': 10, 'runner': 2, 'tank': 2, 'ranger': 2 };
-        if (this.eliteBlueprints.length > 0 && this.wave >= 4) {
-            // More defeated bosses => higher elite spawn chance
-            weights['elite'] = Math.min(6, 1 + this.eliteBlueprints.length * 2);
-        }
+        // 每关怪物池
+        const pool = this.getStageEnemyPool(this.stage);
+        const allowed = new Set(pool.allowed || ['basic']);
+
+        // 允许类型下的基础权重（不同关卡体现不同刷怪风格）
+        // 注：这里仍然可以根据玩家属性做轻度倾向，但不做“突刺式针对”。
+        const weights = {};
+        const addW = (k, w) => { if (allowed.has(k)) weights[k] = (weights[k] || 0) + w; };
 
         if (this.frenzyActive) {
-            // Frenzy: Spawn trash mobs for fun
-            weights = { 'basic': 20, 'runner': 0, 'tank': 0, 'ranger': 0 };
+            addW('basic', 20);
         } else {
-            // Apply Difficulty Logic
-            // NEW: Only apply weakness targeting after wave 4 and if diffFactor is high
-            if (this.wave > 4 && diffFactor > 0.5) { 
-                // HARD PHASE: Target weaknesses
-                if (isSlow) weights['runner'] += 3;       // Fast enemies vs Slow player
-                if (isLowDmg) weights['tank'] += 3;       // Tanky enemies vs Low DPS
-                if (isSquishy) weights['ranger'] += 3;    // Ranged/High Dmg vs Low HP
-            } else if (diffFactor < 0) {
-                // EASY PHASE: Give player a break
-                weights['basic'] += 10;
+            if (allowed.has('basic')) addW('basic', 10);
+            if (allowed.has('runner')) addW('runner', 4);
+            if (allowed.has('tank')) addW('tank', 4);
+            if (allowed.has('ranger')) addW('ranger', 4);
+            if (allowed.has('kamikaze')) addW('kamikaze', 3);
+            if (allowed.has('splitter')) addW('splitter', 3);
+            if (allowed.has('healer')) addW('healer', 2);
+            if (allowed.has('poisoner')) addW('poisoner', 3);
+            if (allowed.has('shielded')) addW('shielded', 2);
+            if (allowed.has('sniper')) addW('sniper', 2);
+            if (allowed.has('warper')) addW('warper', 2);
+
+            // 轻度倾向：避免玩家“完全无解”的局面，但不走大幅波动
+            if (player) {
+                const isSlow = player.speed < 220;
+                const isLowDmg = (player.damage / Math.max(0.12, player.attackCooldown)) < 180;
+                const isSquishy = player.maxHp < 240;
+                if (isSlow) addW('runner', 1);
+                if (isLowDmg) addW('tank', 1);
+                if (isSquishy) addW('ranger', 1);
+            }
+
+            // 波次推进：后半段略提升“麻烦怪”占比
+            const late = (this.wave / Math.max(1, this.wavesTotal || 10)) > 0.55;
+            if (late) {
+                addW('runner', 1);
+                addW('tank', 1);
+                addW('ranger', 1);
+                addW('kamikaze', 1);
+                addW('splitter', 1);
+                addW('poisoner', 1);
+                addW('shielded', 1);
+                addW('sniper', 1);
+                addW('warper', 1);
             }
         }
-        
-        // Wave Restrictions
-        if (this.wave <= 3) { weights = { 'basic': 10, 'runner': 0, 'tank': 0, 'ranger': 0 }; }
-        else if (this.wave <= 5) { weights['tank'] = 1; weights['runner'] = 1; weights['ranger'] = 1; }
-        
+
         // Select Enemy Type
-        const totalWeight = Object.values(weights).reduce((a, b) => a + b, 0);
+        const entries = Object.entries(weights).filter(([, w]) => w > 0);
+        const totalWeight = entries.reduce((a, [, b]) => a + b, 0) || 1;
         let random = Math.random() * totalWeight;
-        let type = 'basic';
-        for (const [k, w] of Object.entries(weights)) {
+        let type = entries.length > 0 ? entries[0][0] : 'basic';
+        for (const [k, w] of entries) {
             random -= w;
             if (random <= 0) { type = k; break; }
         }
 
+        // 每关配置差异：同一种怪在不同关卡有不同皮肤/数值倾向（“每关不同怪”的体感）
+        const s = Math.max(1, this.stage || 1);
+        const stageHp = 1 + Math.min(0.35, (s - 1) * 0.06);
+        const stageSpd = 1 + Math.min(0.22, (s - 1) * 0.04);
+
         const configs = {
-             // exp is a BASE value. Final exp is computed from enemy.level in Enemy constructor.
-             'basic': { type: 'basic', hp: 20, speed: 90, damage: 6, exp: 1, color: '#FF5252' }, 
-             'tank': { type: 'tank', hp: 80, speed: 50, damage: 15, exp: 3, radius: 25, color: '#795548' },
-             'runner': { type: 'runner', hp: 15, speed: 180, damage: 6, exp: 1, radius: 12, color: '#FF9800' },
-             'ranger': { type: 'ranger', hp: 25, speed: 90, damage: 8, exp: 2, isRanged: true, attackRange: 300, color: '#00BCD4' }
+            // exp is a BASE value. Final exp is computed from enemy.level in Enemy constructor.
+            'basic': { type: 'basic', hp: 20 * stageHp, speed: 90 * stageSpd, damage: 6, exp: 1, color: (s === 2 ? '#66BB6A' : (s === 1 ? '#FF5252' : '#AB47BC')) },
+            'tank': { type: 'tank', hp: 80 * stageHp * 1.15, speed: 50 * stageSpd * 0.9, damage: 15, exp: 3, radius: 25, color: (s >= 4 ? '#546E7A' : '#795548') },
+            'runner': { type: 'runner', hp: 15 * stageHp * 0.9, speed: 180 * stageSpd * 1.05, damage: 6, exp: 1, radius: 12, color: (s === 3 ? '#FF7043' : '#FF9800') },
+            'ranger': { type: 'ranger', hp: 25 * stageHp, speed: 90 * stageSpd, damage: 8, exp: 2, isRanged: true, attackRange: 300, color: '#00BCD4' },
+
+            // --- 新怪物：自爆蜂（贴近引爆，逼走位）
+            'kamikaze': {
+                type: 'kamikaze',
+                hp: 18 * stageHp * 0.9,
+                speed: 220 * stageSpd * 1.12,
+                damage: 0,
+                exp: 2,
+                radius: 11,
+                color: '#F44336',
+                behavior: 'kamikaze',
+                explode: {
+                    radius: 115,
+                    damage: 16,
+                    duration: 0.22,
+                    triggerDist: 0,
+                    color: 'rgba(244, 67, 54, 0.40)',
+                    slow: { duration: 0.8, speedMul: 0.78 }
+                }
+            },
+
+            // --- 新怪物：分裂怪（死后分裂成小怪）
+            'splitter': {
+                type: 'splitter',
+                hp: 34 * stageHp,
+                speed: 105 * stageSpd,
+                damage: 7,
+                exp: 3,
+                radius: 16,
+                color: '#8E24AA',
+                split: {
+                    count: 2,
+                    childConfig: {
+                        type: 'mini',
+                        hp: 14,
+                        speed: 155,
+                        damage: 5,
+                        exp: 1,
+                        radius: 10,
+                        color: '#BA68C8'
+                    }
+                }
+            },
+
+            // --- 新怪物：治疗祭司（给周围怪回血）
+            'healer': {
+                type: 'healer',
+                hp: 46 * stageHp * 1.05,
+                speed: 85 * stageSpd,
+                damage: 6,
+                exp: 4,
+                radius: 15,
+                color: '#00E676',
+                aura: { radius: 185, heal: 10, interval: 0.9, color: 'rgba(0, 230, 118, 0.15)' }
+            },
+
+            // --- 新怪物：毒池蜗牛（移动留毒，控场）
+            'poisoner': {
+                type: 'poisoner',
+                hp: 28 * stageHp,
+                speed: 105 * stageSpd,
+                damage: 6,
+                exp: 3,
+                radius: 14,
+                color: '#7CB342',
+                behavior: 'trail_poison',
+                trail: { interval: 0.85, radius: 95, duration: 2.4, damage: 4, tickInterval: 0.45, color: 'rgba(124, 179, 66, 0.22)' }
+            },
+
+            // --- 新怪物：盾卫（减伤，逼你提升DPS）
+            'shielded': {
+                type: 'shielded',
+                hp: 70 * stageHp * 1.1,
+                speed: 72 * stageSpd,
+                damage: 12,
+                exp: 4,
+                radius: 20,
+                color: '#90A4AE',
+                dmgTakenMul: 0.55
+            },
+
+            // --- 新怪物：狙击手（远距离打慢速弹/致盲）
+            'sniper': {
+                type: 'sniper',
+                hp: 24 * stageHp,
+                speed: 80 * stageSpd,
+                damage: 14,
+                exp: 4,
+                radius: 13,
+                color: '#26C6DA',
+                isRanged: true,
+                attackRange: 560,
+                rangedProfile: {
+                    cooldown: 2.9,
+                    projSpeed: 560,
+                    color: '#26C6DA',
+                    radius: 4,
+                    onHitSlow: { duration: 1.1, speedMul: 0.78 }
+                }
+            },
+
+            // --- 新怪物：扭曲幽影（闪现逼近）
+            'warper': {
+                type: 'warper',
+                hp: 22 * stageHp * 0.95,
+                speed: 120 * stageSpd,
+                damage: 7,
+                exp: 3,
+                radius: 13,
+                color: '#B388FF',
+                behavior: 'blink',
+                blinkCd: 3.1,
+                leap: { cooldown: 3.8, duration: 0.55, speedMul: 2.4 }
+            }
         };
 
-        if (type === 'elite' && this.eliteBlueprints.length > 0) {
-            const bp = this.eliteBlueprints[Math.floor(Math.random() * this.eliteBlueprints.length)];
-            this.enemies.push(new Enemy(this, this.makeEliteConfigFromBlueprint(bp)));
-            return;
-        }
-
-        this.enemies.push(new Enemy(this, configs[type]));
+        this.enemies.push(new Enemy(this, configs[type] || configs['basic']));
     }
 
     onEnemyKilled(enemy) {
@@ -2086,7 +2440,7 @@ class Game {
         if (item.isHeirloom) this.saveManager.addHeirloom(item.id);
         const added = this.player.addItem(item);
         if (!added) this.showInventoryFullModal(item);
-        else this.showStageClear();
+        else this.openLobby();
     }
 
     showStageClear() {
@@ -2335,14 +2689,14 @@ class Game {
                 this.player.recalculateStats();
                 this.updateHUDInventory();
                 document.getElementById('inventory-modal').classList.add('hidden');
-                this.showStageClear();
+                this.openLobby();
             };
             grid.appendChild(div);
         });
         modal.classList.remove('hidden');
     }
 
-    discardNewItem() { document.getElementById('inventory-modal').classList.add('hidden'); this.showStageClear(); }
+    discardNewItem() { document.getElementById('inventory-modal').classList.add('hidden'); this.openLobby(); }
 
     showUpgradeModal() {
         this.state = 'PAUSED';

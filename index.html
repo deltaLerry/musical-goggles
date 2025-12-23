@@ -22,6 +22,23 @@
         </div>
     </div>
 
+    <!-- Lobby Screen (Between stages) -->
+    <div id="lobby-screen" class="hidden">
+        <h1>大厅</h1>
+        <div class="subtitle">关卡间休整</div>
+        <div class="lobby-panel">
+            <div class="lobby-row">已完成：第 <span id="lobby-cleared-stage">1</span> 关</div>
+            <div class="lobby-row">下一关：第 <span id="lobby-next-stage">2</span> 关</div>
+            <div class="lobby-hint">进入下一关将重置等级/经验/技能与本关装备（保留天赋与传家宝）</div>
+            <div class="lobby-subtitle">下一关怪物</div>
+            <div id="lobby-enemy-list"></div>
+        </div>
+        <div class="menu-buttons">
+            <button id="lobby-next-btn" class="big-btn">进入下一关</button>
+            <button id="lobby-menu-btn" class="big-btn" style="background-color: #757575;">返回主菜单</button>
+        </div>
+    </div>
+
     <!-- Shop Screen (Hidden by default) -->
     <div id="shop-screen" class="hidden">
         <h2>天赋与传承</h2>

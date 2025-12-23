@@ -115,6 +115,59 @@ body {
 .subtitle { font-size: 20px; color: #ffd700; margin-bottom: 40px; text-transform: uppercase; letter-spacing: 5px; }
 .currency-display { font-size: 24px; color: #ffd700; margin-bottom: 20px; font-weight: bold; }
 
+/* Lobby Screen */
+#lobby-screen {
+    position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
+    background: radial-gradient(circle at 30% 20%, rgba(255, 215, 0, 0.18) 0%, rgba(0,0,0,0.0) 45%),
+                linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 100;
+}
+#lobby-screen h1 { font-size: 56px; text-shadow: 2px 2px 4px black; margin: 0 0 8px 0; }
+.lobby-panel {
+    width: min(680px, 90vw);
+    background: rgba(0,0,0,0.55);
+    border: 1px solid rgba(255,255,255,0.16);
+    box-shadow: 0 18px 50px rgba(0,0,0,0.45);
+    border-radius: 14px;
+    padding: 22px 22px 18px 22px;
+    margin-bottom: 26px;
+    backdrop-filter: blur(2px);
+}
+.lobby-row {
+    font-size: 18px;
+    font-weight: 800;
+    margin: 6px 0;
+}
+.lobby-hint {
+    margin-top: 10px;
+    font-size: 14px;
+    color: rgba(255,255,255,0.75);
+    line-height: 1.4;
+}
+.lobby-subtitle {
+    margin-top: 16px;
+    font-weight: 900;
+    color: #ffd700;
+    letter-spacing: 1px;
+}
+#lobby-enemy-list {
+    margin-top: 10px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+}
+.lobby-enemy-chip {
+    padding: 8px 10px;
+    border-radius: 999px;
+    background: rgba(0,0,0,0.35);
+    border: 1px solid rgba(255,255,255,0.16);
+    font-weight: 800;
+    font-size: 13px;
+    color: rgba(255,255,255,0.9);
+}
+
 .menu-buttons {
     display: flex;
     flex-direction: column;
