@@ -12,13 +12,68 @@
 
     <!-- Main Menu -->
     <div id="main-menu">
-        <h1>提莫快跑</h1>
-        <div class="subtitle">轮回 & 传承</div>
-        <div class="currency-display">技能碎片: <span id="meta-skill-shards">0</span></div>
-        
-        <div class="menu-buttons">
-            <button id="start-game-btn" class="big-btn">开始轮回</button>
-            <button id="shop-btn" class="big-btn" style="background-color: #009688;">天赋 & 传家宝</button>
+        <div class="hub-wrap">
+            <div class="hub-hero">
+                <div class="hub-title">提莫快跑</div>
+                <div class="hub-subtitle">轮回 · 传承</div>
+
+                <div class="hub-stats">
+                    <div class="hub-stat">
+                        <div class="hub-stat-label">技能碎片</div>
+                        <div class="hub-stat-value"><span id="meta-skill-shards">0</span></div>
+                    </div>
+                    <div class="hub-stat">
+                        <div class="hub-stat-label">已解锁关卡</div>
+                        <div class="hub-stat-value">第 <span id="hub-unlocked-stage">1</span> 关</div>
+                    </div>
+                    <div class="hub-stat">
+                        <div class="hub-stat-label">上次选择</div>
+                        <div class="hub-stat-value">第 <span id="hub-last-stage">1</span> 关 · <span id="hub-last-diff">中级</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="hub-grid" role="navigation" aria-label="大厅入口">
+                <button id="start-game-btn" class="hub-tile">
+                    <div class="hub-icon">🗺</div>
+                    <div class="hub-name">进入关卡</div>
+                    <div class="hub-desc">选关 / 难度 / Boss 掉落预览</div>
+                </button>
+
+                <button id="shop-btn" class="hub-tile">
+                    <div class="hub-icon">✨</div>
+                    <div class="hub-name">技能成长</div>
+                    <div class="hub-desc">局外升级 / 传承</div>
+                </button>
+
+                <button id="hub-equip-btn" class="hub-tile disabled" disabled title="即将加入：装备系统">
+                    <div class="hub-icon">🛡</div>
+                    <div class="hub-name">装备</div>
+                    <div class="hub-desc">即将加入</div>
+                </button>
+
+                <button id="hub-store-btn" class="hub-tile disabled" disabled title="即将加入：商店系统">
+                    <div class="hub-icon">🏪</div>
+                    <div class="hub-name">商店</div>
+                    <div class="hub-desc">即将加入</div>
+                </button>
+
+                <button id="hub-profile-btn" class="hub-tile disabled" disabled title="即将加入：个人信息 / 战力 / 状态">
+                    <div class="hub-icon">👤</div>
+                    <div class="hub-name">个人信息</div>
+                    <div class="hub-desc">即将加入</div>
+                </button>
+
+                <button id="hub-bag-btn" class="hub-tile disabled" disabled title="即将加入：背包">
+                    <div class="hub-icon">🎒</div>
+                    <div class="hub-name">背包</div>
+                    <div class="hub-desc">即将加入</div>
+                </button>
+            </div>
+
+            <div class="hub-footer">
+                <div class="hub-footnote">提示：大厅已预留装备 / 商店 / 个人信息 / 背包入口，后续直接替换为真实功能即可。</div>
+            </div>
         </div>
     </div>
 

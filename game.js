@@ -1489,6 +1489,18 @@ class SaveManager {
         const stageShardsEl = document.getElementById('stage-select-skill-shards');
         if (stageShardsEl) stageShardsEl.innerText = (this.data.skillShards || 0);
 
+        // Hub (main menu) progress info
+        const unlockedEl = document.getElementById('hub-unlocked-stage');
+        if (unlockedEl) unlockedEl.innerText = String(this.getUnlockedStageMax());
+        const lastStageEl = document.getElementById('hub-last-stage');
+        if (lastStageEl) lastStageEl.innerText = String(Math.max(1, Math.floor(this.data.lastSelectedStage || 1)));
+        const lastDiffEl = document.getElementById('hub-last-diff');
+        if (lastDiffEl) {
+            const id = String(this.data.lastSelectedDifficulty || 'normal');
+            const map = { easy: '新手', normal: '中级', hard: '高级', hell: '地狱' };
+            lastDiffEl.innerText = map[id] || '中级';
+        }
+
         const hList = document.getElementById('heirloom-list');
         const hContainer = document.getElementById('heirloom-display');
         if (this.data.heirlooms.length > 0) {
