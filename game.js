@@ -4049,18 +4049,6 @@ class Game {
                 return it ? it.name : hid;
             });
 
-            const p = this.player;
-            const hasRun = !!(p && typeof p === 'object');
-            const runStats = hasRun ? [
-                ['等级', p.level],
-                ['攻击力', Math.floor(p.damage)],
-                ['生命值', `${Math.floor(p.hp)}/${Math.floor(p.maxHp)}`],
-                ['攻速', `${(1 / p.attackCooldown).toFixed(2)}/s`],
-                ['移速', Math.floor(p.speed)],
-                ['减伤', Math.floor(p.damageReduction)],
-                ['击杀回血', p.killHeal || 0],
-            ] : [];
-
             root.innerHTML = `
                 <div class="panel-card">
                     <div class="panel-card-title">玩家信息</div>
@@ -4073,21 +4061,7 @@ class Game {
                 <div class="panel-card">
                     <div class="panel-card-title">传承装备</div>
                     <div class="panel-card-desc">${heirloomNames.length ? safe(heirloomNames.join('、')) : '暂无已激活传承'}</div>
-                </div>
-
-                <div class="panel-card">
-                    <div class="panel-card-title">局内状态</div>
-                    <div class="panel-card-desc">${hasRun ? '当前关卡内角色属性（仅展示）' : '未进入关卡，暂无局内状态'}</div>
-                    ${hasRun ? `
-                        <div style="margin-top: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; text-align: left;">
-                            ${runStats.map(([k, v]) => `
-                                <div class="stat-row" style="border-bottom: 1px solid rgba(255,255,255,0.10); padding: 6px 0;">
-                                    <span>${safe(k)}</span><span class="stat-val">${safe(v)}</span>
-                                </div>
-                            `).join('')}
-                        </div>
-                    ` : ``}
-                    <div class="panel-note">提示：关卡内的“个人信息/属性面板”已移至此处。</div>
+                    <div class="panel-note">关卡内状态已从此处移除；请在关卡内点击暂停查看。</div>
                 </div>
             `;
         };
@@ -4216,7 +4190,7 @@ class Game {
         document.getElementById('pause-btn').onclick = () => { this.togglePause(); };
         document.getElementById('resume-btn').onclick = () => { this.togglePause(); };
         document.getElementById('quit-btn').onclick = () => { this.sfx.play('close'); this.returnToMenu(); };
-        document.getElementById('stats-btn').onclick = () => { this.togglePause(); };
+        // stats-btn 已移除（关卡内去掉个人信息展示按钮）
 
         // 关卡选择界面
         const stageBack = document.getElementById('stage-back-btn');
@@ -4484,13 +4458,23 @@ class Game {
             isMobile: (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || ('ontouchstart' in window),
             overlay: document.getElementById('rotate-overlay'),
             tryBtn: document.getElementById('rotate-try-btn'),
+            continueBtn: document.getElementById('rotate-continue-btn'),
             pausedState: null,
             wasPlaying: false,
             pollTimer: null,
+            manualBypassUntil: 0,
         };
 
         const o = this._landscape;
         if (o.tryBtn) o.tryBtn.onclick = () => { this.tryLockLandscape(); };
+        if (o.continueBtn) {
+            o.continueBtn.onclick = () => {
+                // One-session bypass for WebViews that never update orientation correctly.
+                const now = Date.now();
+                o.manualBypassUntil = now + 1000 * 60 * 30; // 30 minutes
+                this.updateLandscapeGate(true);
+            };
+        }
 
         const onChange = () => {
             // Some browsers update viewport dimensions slightly later.
@@ -4539,17 +4523,36 @@ class Game {
             if (m && typeof m.matches === 'boolean') return m.matches;
         }
 
-        // 4) Viewport dims (prefer visualViewport if present)
-        const w = (window.visualViewport && window.visualViewport.width) ? window.visualViewport.width : window.innerWidth;
-        const h = (window.visualViewport && window.visualViewport.height) ? window.visualViewport.height : window.innerHeight;
-        return w >= h;
+        // 4) Multi-source dims (WebViews can be inconsistent). Prefer the largest valid area.
+        const vw = (window.visualViewport && window.visualViewport.width) ? window.visualViewport.width : 0;
+        const vh = (window.visualViewport && window.visualViewport.height) ? window.visualViewport.height : 0;
+        const iw = window.innerWidth || 0;
+        const ih = window.innerHeight || 0;
+        const cw = (document.documentElement && document.documentElement.clientWidth) ? document.documentElement.clientWidth : 0;
+        const ch = (document.documentElement && document.documentElement.clientHeight) ? document.documentElement.clientHeight : 0;
+        const sw = (screen && screen.width) ? screen.width : 0;
+        const sh = (screen && screen.height) ? screen.height : 0;
+
+        const pairs = [
+            { w: vw, h: vh },
+            { w: cw, h: ch },
+            { w: iw, h: ih },
+            { w: sw, h: sh },
+        ].filter(p => p.w > 0 && p.h > 0);
+        if (pairs.length === 0) return true; // fail-open
+        pairs.sort((a, b) => (b.w * b.h) - (a.w * a.h));
+        const p = pairs[0];
+        return (p.w / p.h) >= 1.08;
     }
 
-    updateLandscapeGate() {
+    updateLandscapeGate(force = false) {
         const o = this._landscape;
         if (!o || !o.isMobile || !o.overlay) return;
 
-        const ok = this.isLandscapeNow();
+        const now = Date.now();
+        let ok = this.isLandscapeNow();
+        if (!ok && !force && o.manualBypassUntil && now < o.manualBypassUntil) ok = true;
+
         if (ok) {
             o.overlay.classList.add('hidden');
             o.overlay.setAttribute('aria-hidden', 'true');
@@ -5341,13 +5344,45 @@ class Game {
     updateStatsPanel() {
         const panel = document.getElementById('full-stats-panel');
         if (!panel) return;
-        // 需求：将“个人信息/属性”从关卡内移除，统一放到 大厅 > 个人信息 > 状态
-        panel.innerHTML = `
-            <div class="stat-row" style="grid-column: 1 / -1; border-bottom: none;">
-                <span>提示</span>
-                <span class="stat-val">属性面板已移至：大厅 &gt; 个人信息 &gt; 状态</span>
-            </div>
-        `;
+        const safe = (s) => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+        const sm = this.saveManager;
+        const shards = sm ? Math.max(0, Math.floor(sm.data.skillShards || 0)) : 0;
+        const unlockedStage = sm ? sm.getUnlockedStageMax() : 1;
+        const lastStage = sm ? Math.max(1, Math.floor(sm.data.lastSelectedStage || 1)) : 1;
+        const lastDiffId = sm ? String(sm.data.lastSelectedDifficulty || 'normal') : 'normal';
+        const diffMap = { easy: '新手', normal: '中级', hard: '高级', hell: '地狱' };
+        const lastDiff = diffMap[lastDiffId] || '中级';
+
+        const heirlooms = (sm && Array.isArray(sm.data.heirlooms)) ? sm.data.heirlooms : [];
+        const heirloomNames = heirlooms.map(hid => {
+            const it = ITEMS.find(i => i.id === hid);
+            return it ? it.name : hid;
+        });
+
+        const p = this.player;
+        const hasRun = !!(p && typeof p === 'object');
+
+        const rows = [];
+        // 基础个人信息（局外）
+        rows.push(`<div class="stat-row" style="grid-column: 1 / -1;"><span>玩家信息</span><span class="stat-val">玩家</span></div>`);
+        rows.push(`<div class="stat-row"><span>技能碎片</span><span class="stat-val">${safe(shards)}</span></div>`);
+        rows.push(`<div class="stat-row"><span>已解锁关卡</span><span class="stat-val">第 ${safe(unlockedStage)} 关</span></div>`);
+        rows.push(`<div class="stat-row" style="grid-column: 1 / -1;"><span>上次选择</span><span class="stat-val">第 ${safe(lastStage)} 关 · ${safe(lastDiff)}</span></div>`);
+        rows.push(`<div class="stat-row" style="grid-column: 1 / -1;"><span>传承装备</span><span class="stat-val">${heirloomNames.length ? safe(heirloomNames.join('、')) : '暂无'}</span></div>`);
+
+        // 局内状态（暂停时展示）
+        rows.push(`<div class="stat-row" style="grid-column: 1 / -1; border-bottom: none; padding-top: 10px;"><span>局内状态</span><span class="stat-val">${hasRun ? '当前关卡' : '未进入关卡'}</span></div>`);
+        if (hasRun) {
+            rows.push(`<div class="stat-row"><span>等级</span><span class="stat-val">${safe(p.level)}</span></div>`);
+            rows.push(`<div class="stat-row"><span>攻击力</span><span class="stat-val">${safe(Math.floor(p.damage))}</span></div>`);
+            rows.push(`<div class="stat-row"><span>生命值</span><span class="stat-val">${safe(`${Math.floor(p.hp)}/${Math.floor(p.maxHp)}`)}</span></div>`);
+            rows.push(`<div class="stat-row"><span>攻速</span><span class="stat-val">${safe((1 / p.attackCooldown).toFixed(2))}/s</span></div>`);
+            rows.push(`<div class="stat-row"><span>移速</span><span class="stat-val">${safe(Math.floor(p.speed))}</span></div>`);
+            rows.push(`<div class="stat-row"><span>减伤</span><span class="stat-val">${safe(Math.floor(p.damageReduction))}</span></div>`);
+            rows.push(`<div class="stat-row"><span>击杀回血</span><span class="stat-val">${safe(p.killHeal || 0)}</span></div>`);
+        }
+
+        panel.innerHTML = rows.join('');
     }
 
     update(dt) {
