@@ -1153,6 +1153,11 @@ body {
     width: 100%;
     justify-content: stretch;
 }
+.panel-view[data-view="stageSelect"] .stage-carousel {
+    /* 覆盖通用 .stage-carousel 的“居中/限宽”，让面板内选关真正铺满 */
+    gap: 10px;
+    align-items: stretch;
+}
 .panel-view[data-view="stageSelect"] .stage-card {
     width: 100%;
     /* 面板内不需要重复“卡片边框/阴影”，避免和面板外框叠加 */
@@ -1161,6 +1166,110 @@ body {
     background: rgba(0,0,0,0.20);
     border-radius: 16px;
     padding: 16px 14px 14px 14px;
+}
+
+/* Panel StageSelect: typography & components feel like the same UI system */
+.panel-view[data-view="stageSelect"] .stage-badge {
+    top: 12px;
+    right: 12px;
+    font-size: 11px;
+    letter-spacing: 0.2px;
+    background: rgba(0,0,0,0.22);
+    border-color: rgba(255,255,255,0.14);
+}
+.panel-view[data-view="stageSelect"] .stage-title {
+    font-size: 22px;
+    font-weight: 1000;
+    margin-top: 4px;
+    letter-spacing: 0.3px;
+    color: rgba(255,255,255,0.94);
+}
+.panel-view[data-view="stageSelect"] .stage-desc {
+    margin-top: 6px;
+    font-size: 13px;
+    color: rgba(255,255,255,0.78);
+    line-height: 1.45;
+}
+.panel-view[data-view="stageSelect"] .stage-enemies-title,
+.panel-view[data-view="stageSelect"] .stage-boss-title,
+.panel-view[data-view="stageSelect"] .stage-loot-title,
+.panel-view[data-view="stageSelect"] .stage-reward-title,
+.panel-view[data-view="stageSelect"] .stage-difficulty-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    font-weight: 1000;
+    font-size: 12px;
+    color: rgba(255,255,255,0.86);
+    letter-spacing: 0.6px;
+}
+.panel-view[data-view="stageSelect"] .stage-enemies-title::before,
+.panel-view[data-view="stageSelect"] .stage-boss-title::before,
+.panel-view[data-view="stageSelect"] .stage-loot-title::before,
+.panel-view[data-view="stageSelect"] .stage-reward-title::before,
+.panel-view[data-view="stageSelect"] .stage-difficulty-title::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: rgba(255, 215, 64, 0.85);
+    box-shadow: 0 0 18px rgba(255, 215, 64, 0.10);
+    flex: 0 0 auto;
+}
+
+.panel-view[data-view="stageSelect"] .enemy-preview-chip,
+.panel-view[data-view="stageSelect"] .boss-preview-chip,
+.panel-view[data-view="stageSelect"] .reward-preview-chip,
+.panel-view[data-view="stageSelect"] .loot-chip {
+    background: rgba(0,0,0,0.28);
+    border-color: rgba(255,255,255,0.14);
+    font-size: 12px;
+}
+.panel-view[data-view="stageSelect"] .loot-preview-box {
+    background: rgba(0,0,0,0.22);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 14px;
+    font-size: 12px;
+}
+.panel-view[data-view="stageSelect"] .loot-line b,
+.panel-view[data-view="stageSelect"] .reward-preview-chip b,
+.panel-view[data-view="stageSelect"] .boss-preview-chip span {
+    color: rgba(255, 215, 64, 0.95);
+}
+
+.panel-view[data-view="stageSelect"] .diff-btn {
+    border-radius: 12px;
+    border-color: rgba(255,255,255,0.14);
+    background: rgba(0,0,0,0.28);
+}
+.panel-view[data-view="stageSelect"] .diff-btn.active {
+    border-color: rgba(255, 215, 64, 0.45);
+    background: rgba(255, 215, 64, 0.10);
+    box-shadow: 0 0 20px rgba(255, 215, 64, 0.08);
+}
+.panel-view[data-view="stageSelect"] .diff-btn.hell.active {
+    border-color: rgba(244, 67, 54, 0.45);
+    background: rgba(244, 67, 54, 0.10);
+    box-shadow: 0 0 20px rgba(244, 67, 54, 0.08);
+}
+
+.panel-view[data-view="stageSelect"] .menu-buttons {
+    align-items: stretch;
+    gap: 12px;
+}
+.panel-view[data-view="stageSelect"] #stage-confirm-btn.big-btn {
+    width: 100%;
+    min-width: 0;
+    padding: 12px 14px;
+    font-size: 16px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 215, 64, 0.32);
+    background: rgba(255, 215, 64, 0.10);
+    box-shadow: none;
+}
+.panel-view[data-view="stageSelect"] #stage-confirm-btn.big-btn:active {
+    transform: translateY(1px);
 }
 
 .stage-carousel {
@@ -1888,11 +1997,28 @@ button:hover { background: #45a049; }
     .splash-subtitle { letter-spacing: 3px; }
 
     /* Hub: convert 3-column into portrait stack */
-    .hub-wrap.stage-focus { width: min(520px, 92vw); padding: 14px 12px 12px; border-radius: 18px; }
+    /* Lobby should feel like a full-screen mobile scene, not a centered "box" */
+    #main-menu { justify-content: stretch; align-items: stretch; }
+    .hub-wrap.stage-focus {
+        width: 100%;
+        max-width: 100%;
+        min-height: calc(100vh - var(--safe-top) - var(--safe-bottom));
+        padding: 0;
+        border-radius: 0;
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        backdrop-filter: none;
+        display: flex;
+        flex-direction: column;
+    }
     .hub-portrait {
         display: flex;
         flex-direction: column;
         gap: 12px;
+        flex: 1 1 auto;
+        min-height: 0;
+        padding: 8px 2px 10px 2px;
     }
     .hub-row { width: 100%; }
     /* Top row: avatar left + resources right (less "割裂") */
@@ -1901,17 +2027,18 @@ button:hover { background: #45a049; }
         align-items: center;
         justify-content: space-between;
         gap: 10px;
-        padding: 10px 10px;
-        border-radius: 18px;
-        background: rgba(0,0,0,0.28);
-        border: 1px solid rgba(255,255,255,0.12);
+        padding: 6px 2px;
+        border-radius: 0;
+        background: transparent;
+        border: none;
     }
     .hub-avatar-btn.compact {
         width: auto;
         flex: 0 0 auto;
-        padding: 8px 10px;
-        border-radius: 16px;
-        background: rgba(255,255,255,0.06);
+        padding: 6px 8px;
+        border-radius: 14px;
+        background: transparent;
+        border: 1px solid rgba(255,255,255,0.10);
         display: inline-flex;
         flex-direction: row;
         align-items: center;
@@ -1930,9 +2057,16 @@ button:hover { background: #45a049; }
         min-width: 0;
     }
     .hub-row-top .hub-pill { font-size: 12px; padding: 7px 10px; }
-    .hub-stage-card { border-radius: 18px; }
+    .hub-row-stage { flex: 1 1 auto; display: flex; align-items: center; }
+    .hub-stage-card {
+        border-radius: 18px;
+        border: 1px solid rgba(255,255,255,0.10);
+        box-shadow: none;
+        background: radial-gradient(circle at 25% 20%, rgba(255, 215, 64, 0.10) 0%, rgba(0,0,0,0.0) 55%),
+                    rgba(0,0,0,0.22);
+    }
     .hub-stage-cta { display: flex; justify-content: center; }
-    .stage-orb-btn { width: min(360px, 86vw); }
+    .stage-orb-btn { width: min(420px, 92vw); }
     .hub-stage-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
     .hub-stage-badges { display: inline-flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
     .hub-chip {
@@ -1957,16 +2091,19 @@ button:hover { background: #45a049; }
         display: grid;
         grid-template-columns: repeat(4, 1fr);
         gap: 10px;
-        padding: 10px;
-        border-radius: 18px;
-        background: rgba(0,0,0,0.28);
-        border: 1px solid rgba(255,255,255,0.12);
+        padding: 0;
+        border-radius: 0;
+        background: transparent;
+        border: none;
+        margin-top: auto;
     }
     .hub-icon-btn {
         width: 100%;
         border-radius: 16px;
         padding: 10px 8px;
         height: 78px;
+        background: rgba(0,0,0,0.22);
+        border-color: rgba(255,255,255,0.12);
     }
 
     /* Panel sheet: bottom-up drawer feels native in portrait */

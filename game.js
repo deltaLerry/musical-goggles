@@ -4769,10 +4769,10 @@ class Game {
             const b = this.getBossForStage(meta.id);
             if (bossSection) bossSection.style.display = b ? '' : 'none';
             if (b) {
-                const div = document.createElement('div');
-                div.className = 'boss-preview-chip';
+            const div = document.createElement('div');
+            div.className = 'boss-preview-chip';
                 div.innerHTML = `${b.name} <span>· ${b.hint}</span>`;
-                bossPreview.appendChild(div);
+            bossPreview.appendChild(div);
             }
         }
 
