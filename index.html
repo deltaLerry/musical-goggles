@@ -14,7 +14,7 @@
     <div id="main-menu">
         <h1>提莫快跑</h1>
         <div class="subtitle">轮回 & 传承</div>
-        <div class="currency-display">轮回点数: <span id="meta-points">0</span></div>
+        <div class="currency-display">技能碎片: <span id="meta-skill-shards">0</span></div>
         
         <div class="menu-buttons">
             <button id="start-game-btn" class="big-btn">开始轮回</button>
@@ -41,11 +41,8 @@
 
     <!-- Shop Screen (Hidden by default) -->
     <div id="shop-screen" class="hidden">
-        <h2>天赋与传承</h2>
-        <div class="currency-display">点数: <span id="shop-points">0</span></div>
-        <div class="currency-display" style="font-size:18px;color:#80DEEA;margin-top:-10px;">
-            技能碎片: <span id="shop-skill-shards">0</span>
-        </div>
+        <h2>传承与技能库</h2>
+        <div class="currency-display">技能碎片: <span id="shop-skill-shards">0</span></div>
         
         <div id="heirloom-display" class="hidden">
             <h3>传承装备 (已激活)</h3>
@@ -58,21 +55,6 @@
             <div id="skill-unlock-list"></div>
         </div>
 
-        <div id="talent-section">
-            <div class="talent-column" id="tree-strength">
-                <h2>力量 (Strength)</h2>
-                <div class="talent-list"></div>
-            </div>
-            <div class="talent-column" id="tree-agility">
-                <h2>敏捷 (Agility)</h2>
-                <div class="talent-list"></div>
-            </div>
-            <div class="talent-column" id="tree-magic">
-                <h2>魔法 (Magic)</h2>
-                <div class="talent-list"></div>
-            </div>
-        </div>
-        
         <button id="shop-back-btn" class="big-btn" style="background-color: #757575;">返回主菜单</button>
     </div>
 
@@ -198,7 +180,7 @@
             <div class="modal-content">
                 <h2 id="end-title">游戏结束</h2>
                 <p>存活时间: <span id="final-time"></span></p>
-                <p>获得轮回点: <span id="gained-points">0</span></p>
+                <p>获得技能碎片: <span id="gained-points">0</span></p>
                 <button id="return-menu-btn">返回主菜单</button>
             </div>
         </div>

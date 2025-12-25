@@ -456,20 +456,6 @@ class SoundManager {
     }
 }
 
-const TALENTS = {
-    'health_boost': { id: 'health_boost', name: '体魄', desc: '最大生命 +30', cost: 100, maxLevel: 5, category: 'strength', apply: (p) => p.baseMaxHp += 30 },
-    'regen': { id: 'regen', name: '再生', desc: '每秒回血 +1.5', cost: 200, maxLevel: 3, category: 'strength', apply: (p) => p.regen += 1.5 },
-    'iron_skin': { id: 'iron_skin', name: '铁皮', desc: '伤害减免 +3', cost: 300, maxLevel: 3, category: 'strength', apply: (p) => p.baseDamageReduction += 3 },
-
-    'swiftness': { id: 'swiftness', name: '迅捷', desc: '移速 +15', cost: 100, maxLevel: 5, category: 'agility', apply: (p) => p.baseSpeed += 15 },
-    'haste': { id: 'haste', name: '急速', desc: '攻速 +5%', cost: 200, maxLevel: 5, category: 'agility', apply: (p) => p.baseAttackCooldownMul *= 0.95 },
-    'multishot': { id: 'multishot', name: '多重射击', desc: '分裂箭几率 +10%', cost: 500, maxLevel: 1, category: 'agility', apply: (p) => p.splitShotChance = 0.1 },
-
-    'wisdom': { id: 'wisdom', name: '智慧', desc: '经验获取 +10%', cost: 150, maxLevel: 5, category: 'magic', apply: (p) => p.expMultiplier += 0.1 },
-    'meditation': { id: 'meditation', name: '冥想', desc: '技能冷却 -10%', cost: 250, maxLevel: 3, category: 'magic', apply: (p) => p.baseCdr += 0.1 },
-    'reach': { id: 'reach', name: '掌控', desc: '拾取范围 +20%', cost: 100, maxLevel: 3, category: 'magic', apply: (p) => p.magnetMultiplier += 0.2 }
-};
-
 const SKILLS = {
     'sharpness': { id: 'sharpness', name: '锋利', type: 'passive', maxLevel: 10, unlockCost: 0, unlockDesc: '基础被动：稳定提升普攻伤害。', desc: (lvl) => `攻击力 +${12}`, apply: (p, lvl) => p.damage += 12 * lvl },
     'quick_draw': { id: 'quick_draw', name: '快速拔枪', type: 'passive', maxLevel: 10, unlockCost: 0, unlockDesc: '基础被动：提升普攻频率。', desc: (lvl) => `攻速 +10%`, apply: (p, lvl) => p.attackCooldown *= Math.pow(0.96, lvl) },
@@ -622,6 +608,17 @@ const SKILLS = {
             }
         }
     },
+    // ===== Former TALENTS merged into SKILLS (passives) =====
+    'health_boost': { id: 'health_boost', name: '体魄', type: 'passive', maxLevel: 5, unlockCost: 0, unlockDesc: '原天赋：最大生命提升。', desc: (lvl) => `最大生命 +30`, apply: (p, lvl) => { p.maxHp += 30 * lvl; } },
+    'regen': { id: 'regen', name: '再生', type: 'passive', maxLevel: 3, unlockCost: 0, unlockDesc: '原天赋：持续回血。', desc: (lvl) => `每秒回血 +1.5`, apply: (p, lvl) => { p.regen += 1.5 * lvl; } },
+    'iron_skin': { id: 'iron_skin', name: '铁皮', type: 'passive', maxLevel: 3, unlockCost: 0, unlockDesc: '原天赋：减伤。', desc: (lvl) => `伤害减免 +3`, apply: (p, lvl) => { p.damageReduction += 3 * lvl; } },
+    'swiftness': { id: 'swiftness', name: '迅捷', type: 'passive', maxLevel: 5, unlockCost: 0, unlockDesc: '原天赋：移速提升。', desc: (lvl) => `移速 +15`, apply: (p, lvl) => { p.speed += 15 * lvl; } },
+    'haste': { id: 'haste', name: '急速', type: 'passive', maxLevel: 5, unlockCost: 0, unlockDesc: '原天赋：普攻更快。', desc: (lvl) => `攻速 +5%`, apply: (p, lvl) => { p.attackCooldown *= Math.pow(0.95, lvl); } },
+    // multishot 在旧代码中无实际生效点（splitShotChance 未使用），改为：提升分裂箭“数量”（上限 1）
+    'multishot': { id: 'multishot', name: '多重射击', type: 'passive', maxLevel: 1, unlockCost: 0, unlockDesc: '原天赋重做：分裂箭 +1（若已学分裂箭则更强）。', desc: (lvl) => `分裂箭 +1`, apply: (p, lvl) => { p.splitShotCount = Math.max(p.splitShotCount || 0, lvl); } },
+    'wisdom': { id: 'wisdom', name: '智慧', type: 'passive', maxLevel: 5, unlockCost: 0, unlockDesc: '原天赋：经验获取提升。', desc: (lvl) => `经验获取 +10%`, apply: (p, lvl) => { p.expMultiplier += 0.1 * lvl; } },
+    'meditation': { id: 'meditation', name: '冥想', type: 'passive', maxLevel: 3, unlockCost: 0, unlockDesc: '原天赋：技能冷却更快（对主动技能 CD 生效）。', desc: (lvl) => `技能冷却 -10%`, apply: (p, lvl) => { p.cdr += 0.1 * lvl; } },
+    'reach': { id: 'reach', name: '掌控', type: 'passive', maxLevel: 3, unlockCost: 0, unlockDesc: '原天赋：拾取范围提升。', desc: (lvl) => `拾取范围 +20%`, apply: (p, lvl) => { p.magnetMultiplier += 0.2 * lvl; } },
 
     // ===== New Skill Pool (unlockable) =====
     'arcane_amp': {
@@ -921,15 +918,12 @@ const ITEMS = [
 class SaveManager {
     constructor() {
         this.data = {
-            points: 0,
-            talents: {},
             heirlooms: [],
             // Meta progression: Skill shards + unlocked skills
             skillShards: 0,
             unlockedSkills: {} // { [skillId]: true }
         };
         // 可由 Game 注入：用于购买成功/失败提示音等（避免在这里硬依赖 Game）
-        this.onPurchaseTalent = null; // (ok:boolean)=>void
         this.onAddHeirloom = null; // ()=>void
         this.load();
         this._ensureSkillUnlockDefaults();
@@ -939,21 +933,6 @@ class SaveManager {
         if (s) { try { this.data = { ...this.data, ...JSON.parse(s) }; } catch (e) { } }
     }
     save() { localStorage.setItem('teemo_survivor_v3', JSON.stringify(this.data)); }
-    addPoints(a) { this.data.points += a; this.save(); this.updateUI(); }
-
-    purchaseTalent(id) {
-        const t = TALENTS[id];
-        const lvl = this.data.talents[id] || 0;
-        if (lvl < t.maxLevel && this.data.points >= t.cost) {
-            this.data.points -= t.cost;
-            this.data.talents[id] = lvl + 1;
-            this.save();
-            this.updateUI();
-            if (this.onPurchaseTalent) this.onPurchaseTalent(true);
-        } else {
-            if (this.onPurchaseTalent) this.onPurchaseTalent(false);
-        }
-    }
 
     addHeirloom(itemId) {
         if (!this.data.heirlooms.includes(itemId)) {
@@ -968,12 +947,24 @@ class SaveManager {
         // 兼容旧存档：没有 unlockedSkills 时，默认解锁一批基础技能，保证局内升级池不为空。
         if (!this.data.unlockedSkills || typeof this.data.unlockedSkills !== 'object') this.data.unlockedSkills = {};
         if (typeof this.data.skillShards !== 'number') this.data.skillShards = 0;
+        // 旧版 points/talents 迁移：把 points 转成碎片，talents 直接丢弃（已融合进技能系统）
+        if (typeof this.data.points === 'number' && this.data.points > 0) {
+            this.data.skillShards += Math.floor(this.data.points);
+        }
+        delete this.data.points;
+        delete this.data.talents;
 
         const defaultUnlocked = [
             'sharpness', 'quick_draw', 'vitality', 'split_shot',
             'poison_nova', 'blinding_dart', 'mushroom_trap'
         ];
         defaultUnlocked.forEach(id => { this.data.unlockedSkills[id] = true; });
+        // 默认也解锁“原天赋技能”（避免玩家进局后发现少一大块成长点）
+        [
+            'health_boost', 'regen', 'iron_skin',
+            'swiftness', 'haste', 'multishot',
+            'wisdom', 'meditation', 'reach'
+        ].forEach(id => { this.data.unlockedSkills[id] = true; });
         // 确保写回一次（仅在老存档首次升级到新版本时）
         this.save();
     }
@@ -1006,26 +997,10 @@ class SaveManager {
     }
 
     updateUI() {
-        const pointsEl = document.getElementById('meta-points');
-        if (pointsEl) pointsEl.innerText = this.data.points;
-        const shopPointsEl = document.getElementById('shop-points');
-        if (shopPointsEl) shopPointsEl.innerText = this.data.points;
         const shardsEl = document.getElementById('shop-skill-shards');
         if (shardsEl) shardsEl.innerText = (this.data.skillShards || 0);
-        
-        ['strength', 'agility', 'magic'].forEach(cat => {
-            const container = document.querySelector(`#tree-${cat} .talent-list`);
-            if(!container) return;
-            container.innerHTML = '';
-            Object.values(TALENTS).filter(t => t.category === cat).forEach(t => {
-                const lvl = this.data.talents[t.id] || 0;
-                const div = document.createElement('div');
-                div.className = `talent-node ${lvl > 0 ? 'purchased' : ''} ${lvl >= t.maxLevel ? 'maxed' : ''}`;
-                div.innerHTML = `<div>${t.name} (${lvl}/${t.maxLevel})</div><div style="font-size:10px">${t.desc}</div><div style="font-size:10px;color:#ffd700">${lvl>=t.maxLevel?'MAX':t.cost}</div>`;
-                div.onclick = () => this.purchaseTalent(t.id);
-                container.appendChild(div);
-            });
-        });
+        const metaShardsEl = document.getElementById('meta-skill-shards');
+        if (metaShardsEl) metaShardsEl.innerText = (this.data.skillShards || 0);
 
         const hList = document.getElementById('heirloom-list');
         const hContainer = document.getElementById('heirloom-display');
@@ -1868,13 +1843,6 @@ class Player {
         this.killHasteTimer = 0;
         this.killHasteStacks = 0;
 
-        // Talents
-        const t = game.saveManager.data.talents;
-        Object.keys(t).forEach(tid => {
-            const def = TALENTS[tid];
-            if (def) for (let i = 0; i < t[tid]; i++) def.apply(this);
-        });
-
         // Current State
         this.maxHp = this.baseMaxHp;
         this.damageReduction = this.baseDamageReduction;
@@ -2152,8 +2120,7 @@ class Game {
         // 音效系统（仅提示音；不含受伤/被攻击音效）
         this.sfx = new SoundManager();
         this.saveManager = new SaveManager();
-        // 将购买/传承事件回调连接到音效（避免在 SaveManager 内部耦合 Game）
-        this.saveManager.onPurchaseTalent = (ok) => { if (ok) this.sfx.play('purchase'); };
+        // 将传承事件回调连接到音效（避免在 SaveManager 内部耦合 Game）
         this.saveManager.onAddHeirloom = () => { this.sfx.play('loot'); };
         this.saveManager.updateUI();
 
@@ -3155,7 +3122,6 @@ class Game {
         this.bossRef = null;
         document.getElementById('boss-hp-container').classList.add('hidden');
         this.registerEliteFromBoss(boss);
-        this.saveManager.addPoints(100 * this.stage);
         // Boss 奖励：技能碎片（关卡外解锁用）
         this.saveManager.addSkillShards(6 + Math.floor(this.stage * 2));
         this.state = 'PAUSED';
@@ -3572,12 +3538,12 @@ class Game {
     gameOver() {
         this.state = 'GAMEOVER';
         this.updateMobileControlsVisibility();
-        const pts = Math.floor(this.gameTime / 5);
-        this.saveManager.addPoints(pts);
+        const shards = Math.floor(this.gameTime / 6);
+        this.saveManager.addSkillShards(shards);
         const td = document.getElementById('time-display');
         const finalTime = td ? td.innerText : "00:00";
         document.getElementById('final-time').innerText = finalTime;
-        document.getElementById('gained-points').innerText = pts;
+        document.getElementById('gained-points').innerText = shards;
         document.getElementById('game-over-modal').classList.remove('hidden');
     }
 
