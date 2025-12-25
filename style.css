@@ -1214,6 +1214,24 @@ body {
     margin-top: 4px;
     letter-spacing: 0.3px;
     color: rgba(255,255,255,0.94);
+    text-align: center;
+}
+.panel-view[data-view="stageSelect"] .stage-title-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+.panel-view[data-view="stageSelect"] .stage-title-id {
+    font-size: 12px;
+    font-weight: 1000;
+    letter-spacing: 0.8px;
+    color: rgba(255,255,255,0.70);
+}
+.panel-view[data-view="stageSelect"] .stage-title-name {
+    font-size: 22px;
+    font-weight: 1000;
+    color: rgba(255,255,255,0.96);
 }
 .panel-view[data-view="stageSelect"] .stage-desc {
     margin-top: 6px;
@@ -1262,6 +1280,57 @@ body {
     border: 1px solid rgba(255,255,255,0.10);
     border-radius: 14px;
     font-size: 12px;
+}
+
+/* StageSelect loot: single-row horizontal swipe */
+.panel-view[data-view="stageSelect"] .loot-sample {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 8px;
+    padding: 2px 2px 6px 2px;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+}
+.panel-view[data-view="stageSelect"] .loot-sample::-webkit-scrollbar { height: 6px; }
+.panel-view[data-view="stageSelect"] .loot-sample::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.16);
+    border-radius: 999px;
+}
+.panel-view[data-view="stageSelect"] .loot-chip {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    scroll-snap-align: start;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+.panel-view[data-view="stageSelect"] .loot-chip-sub {
+    color: rgba(255,255,255,0.70);
+    font-weight: 900;
+    font-size: 11px;
+}
+.panel-view[data-view="stageSelect"] .loot-tag {
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 1000;
+    letter-spacing: 0.4px;
+    border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(0,0,0,0.30);
+    flex: 0 0 auto;
+}
+.panel-view[data-view="stageSelect"] .loot-tag--heirloom {
+    border-color: rgba(224, 64, 251, 0.55);
+    background: rgba(224, 64, 251, 0.16);
+    color: rgba(255,255,255,0.95);
+}
+.panel-view[data-view="stageSelect"] .loot-tag--normal {
+    border-color: rgba(3, 169, 244, 0.55);
+    background: rgba(3, 169, 244, 0.14);
+    color: rgba(255,255,255,0.95);
 }
 .panel-view[data-view="stageSelect"] .loot-line b,
 .panel-view[data-view="stageSelect"] .reward-preview-chip b,

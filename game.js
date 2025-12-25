@@ -4808,7 +4808,15 @@ class Game {
         }
 
         const titleEl = document.getElementById('stage-title');
-        if (titleEl) titleEl.innerText = meta.name;
+        if (titleEl) {
+            const raw = String(meta.name || '');
+            const parts = raw.split(/[:：]/);
+            const stageIdText = (parts[0] || raw).trim();
+            const stageNameText = (parts.slice(1).join('：') || '').trim();
+            titleEl.innerHTML = stageNameText
+                ? `<div class="stage-title-inner"><div class="stage-title-id">${escapeHtml(stageIdText)}</div><div class="stage-title-name">${escapeHtml(stageNameText)}</div></div>`
+                : `<div class="stage-title-inner"><div class="stage-title-name">${escapeHtml(raw)}</div></div>`;
+        }
         const descEl = document.getElementById('stage-desc');
         if (descEl) descEl.innerText = meta.desc;
 
@@ -4866,11 +4874,14 @@ class Game {
 
                 const box = document.createElement('div');
                 box.className = 'loot-preview-box';
-                box.innerHTML = `
-                    <div class="loot-line"><b>必掉</b>：1 件装备（初始等级 ${profile.minLevel}~${profile.maxLevel}，影响强度）</div>
-                    <div class="loot-line"><b>传承掉落</b>：${Math.round(heirloomChance * 100)}%（仅在仍有未解锁传承时）</div>
-                    <div class="loot-line"><b>普通掉落</b>：${Math.round((1 - heirloomChance) * 100)}%</div>
-                `;
+                const lootLines = [
+                    `<div class="loot-line"><b>必掉</b>：1 件装备（初始等级 ${profile.minLevel}~${profile.maxLevel}）</div>`
+                ];
+                // 没有“可掉落的传承”时，直接不展示传承相关说明
+                if (heirloomChance > 0) {
+                    lootLines.push(`<div class="loot-line"><b>传承掉落</b>：${Math.round(heirloomChance * 100)}%</div>`);
+                }
+                box.innerHTML = lootLines.join('');
                 const sample = document.createElement('div');
                 sample.className = 'loot-sample';
 
@@ -4887,14 +4898,14 @@ class Game {
 
                 pickN(possibleHeirlooms, Math.min(2, possibleHeirlooms.length)).forEach(it => {
                     const d = document.createElement('div');
-                    d.className = 'loot-chip heirloom';
-                    d.innerText = `传承：${it.name}`;
+                    d.className = 'loot-chip heirloom loot-chip--heirloom';
+                    d.innerHTML = `<span class="loot-tag loot-tag--heirloom">传承</span><span class="loot-chip-text">${escapeHtml(it.name)}</span>`;
                     sample.appendChild(d);
                 });
                 pickN(standards, 3).forEach(it => {
                     const d = document.createElement('div');
-                    d.className = 'loot-chip';
-                    d.innerText = `装备：${it.name}（+${profile.minLevel}~${profile.maxLevel}）`;
+                    d.className = 'loot-chip loot-chip--normal';
+                    d.innerHTML = `<span class="loot-tag loot-tag--normal">普通</span><span class="loot-chip-text">${escapeHtml(it.name)}</span><span class="loot-chip-sub">+${profile.minLevel}~${profile.maxLevel}</span>`;
                     sample.appendChild(d);
                 });
 
