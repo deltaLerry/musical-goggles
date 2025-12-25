@@ -24,79 +24,65 @@
     <!-- Main Menu -->
     <div id="main-menu" class="hidden">
         <div class="hub-wrap stage-focus">
-            <div class="hub-shell">
-                <!-- Left sidebar -->
-                <div class="hub-side left" aria-label="左侧功能栏">
-                    <button id="hub-profile-btn" class="hub-avatar-btn" title="个人信息">
+            <!-- Portrait Lobby Layout:
+                 Top row: avatar (left) + resources (right)
+                 Main: stage card (primary CTA)
+                 Bottom: dock icons -->
+            <div class="hub-portrait" aria-label="大厅">
+                <div class="hub-row hub-row-top" aria-label="顶部栏">
+                    <button id="hub-profile-btn" class="hub-avatar-btn compact" title="个人信息">
                         <div class="hub-avatar-ring">
                             <div class="hub-avatar">👤</div>
                         </div>
                         <div class="hub-avatar-name">玩家</div>
                     </button>
-                    <div class="hub-side-stack">
-                        <button id="shop-btn" class="hub-icon-btn" title="技能成长（局外升级/传承）">
-                            <span class="hub-icon-emoji">✨</span>
-                            <span class="hub-icon-text">技能</span>
-                        </button>
+                    <div class="hub-top-stats" aria-label="资源栏">
+                        <div class="hub-pill" title="技能碎片">
+                            <span class="hub-pill-icon">💠</span>
+                            <span class="hub-pill-label">碎片</span>
+                            <span class="hub-pill-value" id="meta-skill-shards">0</span>
+                        </div>
+                        <div class="hub-pill" title="已解锁关卡">
+                            <span class="hub-pill-icon">🔓</span>
+                            <span class="hub-pill-label">解锁</span>
+                            <span class="hub-pill-value">第 <span id="hub-unlocked-stage">1</span> 关</span>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Center -->
-                <div class="hub-center">
-                    <div class="hub-topbar">
-                        <div class="hub-top-stats">
-                            <div class="hub-pill" title="技能碎片">
-                                <span class="hub-pill-icon">💠</span>
-                                <span class="hub-pill-label">碎片</span>
-                                <span class="hub-pill-value" id="meta-skill-shards">0</span>
-                            </div>
-                            <div class="hub-pill" title="已解锁关卡">
-                                <span class="hub-pill-icon">🔓</span>
-                                <span class="hub-pill-label">解锁</span>
-                                <span class="hub-pill-value">第 <span id="hub-unlocked-stage">1</span> 关</span>
-                            </div>
-                        </div>
-                    </div>
-
+                <div class="hub-row hub-row-stage" aria-label="进入关卡">
                     <div class="hub-stage-card">
                         <div class="hub-stage-header">
                             <div class="hub-stage-kicker">主线 · 进入关卡</div>
-                            <div class="hub-stage-meta">
-                                <div class="hub-stage-line">上次：第 <span id="hub-last-stage">1</span> 关 · <span id="hub-last-diff">中级</span></div>
-                                <div class="hub-stage-line dim">建议：先打关卡获取碎片，用于局外技能成长</div>
+                            <div class="hub-stage-badges" aria-label="当前关卡信息">
+                                <span class="hub-chip">第 <span id="hub-selected-stage">1</span> 关</span>
+                                <span class="hub-chip ghost" id="hub-selected-diff">中级</span>
                             </div>
                         </div>
-
                         <div class="hub-stage-cta">
                             <button id="start-game-btn" class="stage-orb-btn" aria-label="选择关卡">进入关卡</button>
-                            <div class="stage-orb-hint">选关界面将自动定位到上次选择，可随时调整难度 / Boss / 掉落预览</div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Right sidebar -->
-                <div class="hub-side right" aria-label="右侧功能栏">
-                    <div class="hub-side-stack">
-                        <button id="hub-store-btn" class="hub-icon-btn" disabled title="即将加入：商店系统">
-                            <span class="hub-icon-emoji">🏪</span>
-                            <span class="hub-icon-text">商店</span>
-                        </button>
-
-                        <button id="hub-mail-btn" class="hub-icon-btn" title="活动">
-                            <span class="hub-icon-emoji">📮</span>
-                            <span class="hub-icon-text">活动</span>
-                        </button>
-
-                        <button id="hub-settings-btn" class="hub-icon-btn" title="设置">
-                            <span class="hub-icon-emoji">⚙</span>
-                            <span class="hub-icon-text">设置</span>
-                        </button>
-                    </div>
+                <div class="hub-row hub-row-icons" aria-label="功能入口">
+                    <button id="shop-btn" class="hub-icon-btn" title="技能">
+                        <span class="hub-icon-emoji">✨</span>
+                        <span class="hub-icon-text">技能</span>
+                    </button>
+                    <button id="hub-store-btn" class="hub-icon-btn" disabled title="商店（敬请期待）">
+                        <span class="hub-icon-emoji">🏪</span>
+                        <span class="hub-icon-text">商店</span>
+                    </button>
+                    <button id="hub-mail-btn" class="hub-icon-btn" title="活动">
+                        <span class="hub-icon-emoji">📮</span>
+                        <span class="hub-icon-text">活动</span>
+                    </button>
+                    <button id="hub-settings-btn" class="hub-icon-btn" title="设置">
+                        <span class="hub-icon-emoji">⚙</span>
+                        <span class="hub-icon-text">设置</span>
+                    </button>
                 </div>
-            </div>
-
-            <div class="hub-footer">
-                <div class="hub-footnote">目标：让你“进来就开打”。其它系统入口做成小 icon，后续直接替换为真实功能即可。</div>
             </div>
         </div>
     </div>
@@ -108,7 +94,13 @@
             <div class="panel-header">
                 <button id="panel-back-btn" class="panel-back" title="返回/关闭">←</button>
                 <div class="panel-crumbs" id="panel-crumbs">大厅</div>
-                <button id="panel-close-btn" class="panel-close" title="关闭">✕</button>
+                <div class="panel-header-right">
+                    <div class="panel-shards-pill" title="技能碎片">
+                        <span class="panel-shards-icon">💠</span>
+                        <span class="panel-shards-val" id="panel-shards-val">0</span>
+                    </div>
+                    <button id="panel-close-btn" class="panel-close" title="关闭">✕</button>
+                </div>
             </div>
             <div id="panel-views" class="panel-views" aria-label="面板视图栈">
                 <!-- Profile -->
@@ -203,11 +195,10 @@
                 <section class="panel-view" data-view="stageSelect">
                     <div id="stage-select-screen">
                         <h1>选择关卡</h1>
-                        <div class="subtitle">左右切换 · 选择难度</div>
+                        <div class="subtitle">左右滑动切换 · 选择难度</div>
                         <div class="currency-display">技能碎片: <span id="stage-select-skill-shards">0</span></div>
 
                         <div class="stage-carousel">
-                            <button id="stage-prev" class="icon-btn stage-nav" title="上一关">◀</button>
                             <div class="stage-card">
                                 <div class="stage-badge" id="stage-unlock-badge">已解锁</div>
                                 <div class="stage-title" id="stage-title">第 1 关</div>
@@ -229,7 +220,6 @@
                                     <button class="diff-btn" data-diff="hell">地狱</button>
                                 </div>
                             </div>
-                            <button id="stage-next" class="icon-btn stage-nav" title="下一关">▶</button>
                         </div>
 
                         <div class="menu-buttons" style="margin-top: 18px;">
@@ -240,16 +230,9 @@
 
                 <!-- Skills (Meta growth) -->
                 <section class="panel-view" data-view="skills">
-                    <div class="panel-section-title">技能成长</div>
+                    <div class="panel-section-title">技能</div>
                     <div class="panel-tabs" id="panel-skill-type-tabs" aria-label="技能类型"></div>
                     <div class="panel-tabs" id="panel-skill-arch-tabs" aria-label="技能分系"></div>
-                    <div class="panel-subbar">
-                        <div class="panel-pill">
-                            <span class="panel-pill-icon">💠</span>
-                            <span class="panel-pill-label">碎片</span>
-                            <span class="panel-pill-value" id="panel-skill-shards">0</span>
-                        </div>
-                    </div>
                     <div id="panel-skill-list" class="panel-skill-list"></div>
                 </section>
 

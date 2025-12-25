@@ -54,6 +54,9 @@ body {
     opacity: 0.22;
 }
 
+/* Stage card: allow vertical scroll, keep swipe responsive */
+.stage-card { touch-action: pan-y; }
+
 #joystick.active {
     opacity: 0.9;
 }
@@ -515,6 +518,78 @@ body {
     overflow: hidden;
     display: flex;
     flex-direction: column;
+}
+
+/* Panel header shards (top-right) */
+.panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.panel-header-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.panel-shards-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(0,0,0,0.35);
+    border: 1px solid rgba(255,255,255,0.14);
+    color: rgba(255,255,255,0.92);
+    font-weight: 900;
+    font-size: 12px;
+}
+.panel-shards-icon { opacity: 0.95; }
+
+/* Settings unified controls */
+.panel-setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 2px;
+}
+.panel-setting-left { min-width: 0; }
+.panel-setting-label { font-weight: 1000; color: rgba(255,255,255,0.92); }
+.panel-setting-desc { margin-top: 4px; font-size: 12px; color: rgba(255,255,255,0.68); line-height: 1.35; }
+.panel-setting-divider { height: 1px; background: rgba(255,255,255,0.10); margin: 4px 0; }
+
+.panel-switch {
+    width: 46px;
+    height: 28px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.14);
+    border: 1px solid rgba(255,255,255,0.16);
+    position: relative;
+    flex: 0 0 auto;
+}
+.panel-switch.on {
+    background: rgba(0, 230, 118, 0.22);
+    border-color: rgba(0, 230, 118, 0.35);
+}
+.panel-switch-knob {
+    position: absolute;
+    top: 50%;
+    left: 6px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    transform: translateY(-50%);
+    background: rgba(255,255,255,0.92);
+    box-shadow: 0 8px 18px rgba(0,0,0,0.35);
+    transition: left 0.16s ease;
+}
+.panel-switch.on .panel-switch-knob { left: 22px; }
+
+.panel-slider-row { padding: 6px 2px 12px 2px; }
+.panel-slider {
+    width: 100%;
+    height: 32px;
+    background: transparent;
 }
 .panel-header {
     padding: 12px 14px;
@@ -1762,25 +1837,85 @@ button:hover { background: #45a049; }
 
     /* Hub: convert 3-column into portrait stack */
     .hub-wrap.stage-focus { width: min(520px, 92vw); padding: 14px 12px 12px; border-radius: 18px; }
-    .hub-shell {
-        grid-template-columns: 1fr;
+    .hub-portrait {
+        display: flex;
+        flex-direction: column;
         gap: 12px;
     }
-    .hub-side.left,
-    .hub-side.right {
-        flex-direction: row;
+    .hub-row { width: 100%; }
+    /* Top row: avatar left + resources right (less "割裂") */
+    .hub-row-top {
+        display: flex;
+        align-items: center;
         justify-content: space-between;
-        padding: 10px 10px;
-        border-radius: 16px;
-    }
-    .hub-side-stack {
-        flex-direction: row;
         gap: 10px;
-        max-height: none;
-        overflow: visible;
+        padding: 10px 10px;
+        border-radius: 18px;
+        background: rgba(0,0,0,0.28);
+        border: 1px solid rgba(255,255,255,0.12);
     }
-    .hub-center { gap: 12px; }
+    .hub-avatar-btn.compact {
+        width: auto;
+        flex: 0 0 auto;
+        padding: 8px 10px;
+        border-radius: 16px;
+        background: rgba(255,255,255,0.06);
+        display: inline-flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 10px;
+    }
+    .hub-avatar-btn.compact .hub-avatar-ring { width: 46px; height: 46px; }
+    .hub-avatar-btn.compact .hub-avatar { width: 38px; height: 38px; font-size: 18px; }
+    .hub-avatar-btn.compact .hub-avatar-name { font-size: 12px; opacity: 0.9; }
+
+    .hub-row-top .hub-top-stats {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        justify-content: flex-end;
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+    .hub-row-top .hub-pill { font-size: 12px; padding: 7px 10px; }
     .hub-stage-card { border-radius: 18px; }
+    .hub-stage-cta { display: flex; justify-content: center; }
+    .stage-orb-btn { width: min(360px, 86vw); }
+    .hub-stage-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .hub-stage-badges { display: inline-flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .hub-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(0,0,0,0.26);
+        border: 1px solid rgba(255,255,255,0.14);
+        color: rgba(255,255,255,0.92);
+        font-weight: 900;
+        font-size: 12px;
+        letter-spacing: 0.2px;
+        white-space: nowrap;
+    }
+    .hub-chip.ghost {
+        background: rgba(255,255,255,0.06);
+        border-color: rgba(255,215,0,0.20);
+    }
+
+    .hub-row-icons {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+        padding: 10px;
+        border-radius: 18px;
+        background: rgba(0,0,0,0.28);
+        border: 1px solid rgba(255,255,255,0.12);
+    }
+    .hub-icon-btn {
+        width: 100%;
+        border-radius: 16px;
+        padding: 10px 8px;
+        height: 78px;
+    }
 
     /* Panel sheet: bottom-up drawer feels native in portrait */
     .panel-sheet {

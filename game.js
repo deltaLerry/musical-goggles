@@ -1578,17 +1578,19 @@ class SaveManager {
         if (metaShardsEl) metaShardsEl.innerText = (this.data.skillShards || 0);
         const stageShardsEl = document.getElementById('stage-select-skill-shards');
         if (stageShardsEl) stageShardsEl.innerText = (this.data.skillShards || 0);
+        const panelShardsEl = document.getElementById('panel-shards-val');
+        if (panelShardsEl) panelShardsEl.innerText = (this.data.skillShards || 0);
 
         // Hub (main menu) progress info
         const unlockedEl = document.getElementById('hub-unlocked-stage');
         if (unlockedEl) unlockedEl.innerText = String(this.getUnlockedStageMax());
-        const lastStageEl = document.getElementById('hub-last-stage');
-        if (lastStageEl) lastStageEl.innerText = String(Math.max(1, Math.floor(this.data.lastSelectedStage || 1)));
-        const lastDiffEl = document.getElementById('hub-last-diff');
-        if (lastDiffEl) {
+        const selectedStageEl = document.getElementById('hub-selected-stage');
+        if (selectedStageEl) selectedStageEl.innerText = String(Math.max(1, Math.floor(this.data.lastSelectedStage || 1)));
+        const selectedDiffEl = document.getElementById('hub-selected-diff');
+        if (selectedDiffEl) {
             const id = String(this.data.lastSelectedDifficulty || 'normal');
             const map = { easy: '新手', normal: '中级', hard: '高级', hell: '地狱' };
-            lastDiffEl.innerText = map[id] || '中级';
+            selectedDiffEl.innerText = map[id] || '中级';
         }
 
         const hList = document.getElementById('heirloom-list');
@@ -3295,7 +3297,7 @@ class Game {
             activities: '活动',
             settings: '设置',
             stageSelect: '选择关卡',
-            skills: '技能成长',
+            skills: '技能',
             skillDetail: '技能详情',
         }[id] || '面板');
 
@@ -3963,37 +3965,32 @@ class Game {
                 return;
             }
 
-            // 5 档音量（与需求一致）。内部仍然使用 0~1 浮点存储。
-            const steps = [0.10, 0.18, 0.26, 0.34, 0.42];
-            const nearestStep = () => {
-                let best = 1, bestD = Infinity;
-                for (let i = 0; i < steps.length; i++) {
-                    const d = Math.abs((sfx.volume || 0) - steps[i]);
-                    if (d < bestD) { bestD = d; best = i + 1; }
-                }
-                return best;
-            };
-            const curStep = nearestStep();
+            const volPct = Math.round(Math.max(0, Math.min(1, sfx.volume || 0)) * 100);
 
             root.innerHTML = `
-                <div class="panel-entry" id="panel-setting-sfx-toggle" role="button" tabindex="0">
-                    <div class="panel-entry-left">
-                        <div class="panel-entry-icon">${sfx.enabled ? '🔊' : '🔇'}</div>
-                        <div class="panel-entry-text">
-                            <div class="panel-entry-title">音效开关</div>
-                            <div class="panel-entry-desc">提示音 / 释放音 / 命中音等（不包含受伤音效）</div>
+                <div class="panel-card">
+                    <div class="panel-card-title">音效</div>
+                    <div class="panel-setting-row" id="panel-setting-sfx-toggle" role="switch" aria-checked="${sfx.enabled ? 'true' : 'false'}" tabindex="0">
+                        <div class="panel-setting-left">
+                            <div class="panel-setting-label">音效开关</div>
+                            <div class="panel-setting-desc">提示音 / 技能释放 / 命中（不包含受伤音效）</div>
+                        </div>
+                        <div class="panel-switch ${sfx.enabled ? 'on' : ''}" aria-hidden="true">
+                            <div class="panel-switch-knob"></div>
                         </div>
                     </div>
-                    <div class="panel-entry-right">${sfx.enabled ? '开启' : '关闭'}</div>
-                </div>
 
-                <div class="panel-card">
-                    <div class="panel-card-title">音量大小</div>
-                    <div class="panel-card-desc">共 5 档：当前 <b>${safe(curStep)}</b>/5</div>
-                    <div class="panel-tabs" style="margin-top: 10px;">
-                        ${[1,2,3,4,5].map(n => `<button class="panel-tab ${n===curStep?'active':''}" data-vol-step="${n}">${n}</button>`).join('')}
+                    <div class="panel-setting-divider"></div>
+
+                    <div class="panel-setting-row">
+                        <div class="panel-setting-left">
+                            <div class="panel-setting-label">音量</div>
+                            <div class="panel-setting-desc">当前 <b>${safe(volPct)}%</b>（会保存到本地）</div>
+                        </div>
                     </div>
-                    <div class="panel-note">提示：音量会保存到本地，下次进入游戏自动生效。</div>
+                    <div class="panel-slider-row">
+                        <input id="panel-setting-volume" class="panel-slider" type="range" min="0" max="100" step="1" value="${safe(volPct)}" />
+                    </div>
                 </div>
             `;
 
@@ -4016,14 +4013,18 @@ class Game {
                 };
             }
 
-            root.querySelectorAll('button[data-vol-step]').forEach(btn => {
-                btn.onclick = () => {
-                    const step = Math.max(1, Math.min(5, Math.floor(Number(btn.getAttribute('data-vol-step') || '1'))));
-                    sfx.setVolume(steps[step - 1]);
+            const volEl = document.getElementById('panel-setting-volume');
+            if (volEl) {
+                volEl.oninput = () => {
+                    const v = Math.max(0, Math.min(100, Math.floor(Number(volEl.value || '0')))) / 100;
+                    sfx.setVolume(v);
+                    if (typeof this._syncHudSoundBtn === 'function') this._syncHudSoundBtn();
+                };
+                volEl.onchange = () => {
                     if (sfx.enabled) sfx.play('click');
                     renderSettingsView();
                 };
-            });
+            }
         };
 
         const renderStatusView = () => {
@@ -4191,10 +4192,8 @@ class Game {
         // 关卡选择界面
         const stageBack = document.getElementById('stage-back-btn');
         if (stageBack) stageBack.onclick = () => { this.sfx.play('close'); this.closeStageSelect(); };
-        const stagePrev = document.getElementById('stage-prev');
-        if (stagePrev) stagePrev.onclick = () => { this.sfx.play('click'); this.stageSelectMove(-1); };
-        const stageNext = document.getElementById('stage-next');
-        if (stageNext) stageNext.onclick = () => { this.sfx.play('click'); this.stageSelectMove(1); };
+        // Swipe (portrait): replace < > buttons with gesture.
+        this.bindStageSelectSwipe();
         const stageConfirm = document.getElementById('stage-confirm-btn');
         if (stageConfirm) stageConfirm.onclick = () => { this.sfx.play('start'); this.confirmStageSelection(); };
 
@@ -4260,6 +4259,67 @@ class Game {
             x1, y1, x2, y2,
             c: color || 'rgba(255,255,255,0.8)'
         });
+    }
+
+    bindStageSelectSwipe() {
+        // Bind once. Stage select lives inside the panel view, so DOM exists all the time.
+        if (this._stageSwipeBound) return;
+        this._stageSwipeBound = true;
+
+        const card = document.querySelector('#stage-select-screen .stage-card');
+        if (!card) return;
+
+        let down = false;
+        let pid = null;
+        let sx = 0, sy = 0;
+        let moved = false;
+
+        const onDown = (e) => {
+            // Only one pointer at a time.
+            down = true;
+            pid = e.pointerId;
+            sx = e.clientX;
+            sy = e.clientY;
+            moved = false;
+        };
+
+        const onMove = (e) => {
+            if (!down || e.pointerId !== pid) return;
+            const dx = e.clientX - sx;
+            const dy = e.clientY - sy;
+            if (Math.abs(dx) > 10 || Math.abs(dy) > 10) moved = true;
+
+            // If it's clearly a horizontal swipe, prevent accidental text selection.
+            if (e.cancelable && Math.abs(dx) > 18 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+                e.preventDefault();
+            }
+        };
+
+        const onUp = (e) => {
+            if (!down || e.pointerId !== pid) return;
+            down = false;
+            pid = null;
+
+            const dx = e.clientX - sx;
+            const dy = e.clientY - sy;
+            if (!moved) return;
+
+            // Horizontal swipe threshold
+            if (Math.abs(dx) < 42 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+
+            if (dx > 0) {
+                this.sfx?.play('click');
+                this.stageSelectMove(-1);
+            } else {
+                this.sfx?.play('click');
+                this.stageSelectMove(1);
+            }
+        };
+
+        card.addEventListener('pointerdown', onDown, { passive: true });
+        card.addEventListener('pointermove', onMove, { passive: false });
+        card.addEventListener('pointerup', onUp, { passive: true });
+        card.addEventListener('pointercancel', onUp, { passive: true });
     }
 
     setupMobileControls() {
