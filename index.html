@@ -196,6 +196,45 @@
                     </div>
                 </section>
 
+                <!-- Stage Select (inside panel system; keep UI) -->
+                <section class="panel-view" data-view="stageSelect">
+                    <div id="stage-select-screen">
+                        <h1>选择关卡</h1>
+                        <div class="subtitle">左右切换 · 选择难度</div>
+                        <div class="currency-display">技能碎片: <span id="stage-select-skill-shards">0</span></div>
+
+                        <div class="stage-carousel">
+                            <button id="stage-prev" class="icon-btn stage-nav" title="上一关">◀</button>
+                            <div class="stage-card">
+                                <div class="stage-badge" id="stage-unlock-badge">已解锁</div>
+                                <div class="stage-title" id="stage-title">第 1 关</div>
+                                <div class="stage-desc" id="stage-desc">关卡描述</div>
+                                <div class="stage-enemies-title">本关怪物</div>
+                                <div id="stage-enemy-preview"></div>
+
+                                <div class="stage-boss-title">本关 Boss（固定）</div>
+                                <div id="stage-boss-preview"></div>
+
+                                <div class="stage-loot-title">Boss 掉落</div>
+                                <div id="stage-loot-preview"></div>
+
+                                <div class="stage-difficulty-title">难度</div>
+                                <div class="difficulty-row" id="difficulty-row">
+                                    <button class="diff-btn" data-diff="easy">新手</button>
+                                    <button class="diff-btn" data-diff="normal">中级</button>
+                                    <button class="diff-btn" data-diff="hard">高级</button>
+                                    <button class="diff-btn" data-diff="hell">地狱</button>
+                                </div>
+                            </div>
+                            <button id="stage-next" class="icon-btn stage-nav" title="下一关">▶</button>
+                        </div>
+
+                        <div class="menu-buttons" style="margin-top: 18px;">
+                            <button id="stage-confirm-btn" class="big-btn">开始</button>
+                        </div>
+                    </div>
+                </section>
+
                 <!-- Skills (Meta growth) -->
                 <section class="panel-view" data-view="skills">
                     <div class="panel-section-title">技能成长</div>
@@ -216,44 +255,6 @@
                     <div id="panel-skill-detail" class="panel-skill-detail"></div>
                 </section>
             </div>
-        </div>
-    </div>
-
-    <!-- Stage Select Screen -->
-    <div id="stage-select-screen" class="hidden">
-        <button id="stage-back-btn" class="icon-btn screen-close" title="关闭">✕</button>
-        <h1>选择关卡</h1>
-        <div class="subtitle">左右切换 · 选择难度</div>
-        <div class="currency-display">技能碎片: <span id="stage-select-skill-shards">0</span></div>
-
-        <div class="stage-carousel">
-            <button id="stage-prev" class="icon-btn stage-nav" title="上一关">◀</button>
-            <div class="stage-card">
-                <div class="stage-badge" id="stage-unlock-badge">已解锁</div>
-                <div class="stage-title" id="stage-title">第 1 关</div>
-                <div class="stage-desc" id="stage-desc">关卡描述</div>
-                <div class="stage-enemies-title">本关怪物</div>
-                <div id="stage-enemy-preview"></div>
-
-                <div class="stage-boss-title">本关 Boss（固定）</div>
-                <div id="stage-boss-preview"></div>
-
-                <div class="stage-loot-title">Boss 掉落</div>
-                <div id="stage-loot-preview"></div>
-
-                <div class="stage-difficulty-title">难度</div>
-                <div class="difficulty-row" id="difficulty-row">
-                    <button class="diff-btn" data-diff="easy">新手</button>
-                    <button class="diff-btn" data-diff="normal">中级</button>
-                    <button class="diff-btn" data-diff="hard">高级</button>
-                    <button class="diff-btn" data-diff="hell">地狱</button>
-                </div>
-            </div>
-            <button id="stage-next" class="icon-btn stage-nav" title="下一关">▶</button>
-        </div>
-
-        <div class="menu-buttons" style="margin-top: 18px;">
-            <button id="stage-confirm-btn" class="big-btn">开始</button>
         </div>
     </div>
 

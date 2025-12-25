@@ -3286,6 +3286,7 @@ class Game {
             bag: '背包',
             equip: '装备',
             activities: '活动',
+            stageSelect: '选择关卡',
             skills: '技能成长',
             skillDetail: '技能详情',
         }[id] || '面板');
@@ -3731,6 +3732,138 @@ class Game {
                     if (pCur.chainExplode) mechLines.push('效果：连环引爆');
                     if (pCur.aftershock) mechLines.push('效果：余震');
                 } catch (_) { }
+            } else if (def.type === 'passive') {
+                // Passive: show numeric "current status" + next-level a->b based on metaApplyPassiveBonus.
+                const inRunLv = 1; // baseline for preview
+                const mkBase = () => ({
+                    damage: 0,
+                    maxHp: 0,
+                    attackCooldown: 1,
+                    speed: 0,
+                    damageReduction: 0,
+                    regen: 0,
+                    expMultiplier: 1,
+                    cdr: 0,
+                    magnetMultiplier: 1,
+                    splitShotCount: 0,
+                    skillDmgMul: 1,
+                    skillCdMul: 1,
+                    poisonOnHit: null,
+                    killHaste: null,
+                });
+
+                const applyPassiveAt = (metaLevel) => {
+                    const p = mkBase();
+                    try {
+                        if (typeof def.apply === 'function') def.apply(p, inRunLv);
+                    } catch (_) { }
+                    try {
+                        metaApplyPassiveBonus(p, sid, inRunLv, metaLevel);
+                    } catch (_) { }
+                    return p;
+                };
+
+                const pCur = applyPassiveAt(lv);
+                const pNxt = applyPassiveAt(Math.min(META_SKILL_MAX_LEVEL, lv + 1));
+
+                const fmt = (n) => (typeof n === 'number' && Number.isFinite(n)) ? (Math.abs(n) >= 100 ? String(Math.round(n)) : n.toFixed(2)) : '';
+                const pct = (x) => (typeof x === 'number' && Number.isFinite(x)) ? `${(x * 100).toFixed(1)}%` : '';
+                const pctDelta = (mult) => {
+                    if (!(typeof mult === 'number' && Number.isFinite(mult) && mult > 0)) return '';
+                    return `${(((1 / mult) - 1) * 100).toFixed(1)}%`;
+                };
+
+                const mkA2B = (label, a, b, unit = '') => {
+                    if (a === undefined && b === undefined) return;
+                    const fa = (typeof a === 'number') ? fmt(a) : String(a ?? '');
+                    const fb = (typeof b === 'number') ? fmt(b) : String(b ?? '');
+                    if (!fa && !fb) return;
+                    nextA2BLines.push(`${label}：${fa}${unit} → ${fb}${unit}`);
+                };
+
+                // Generic always-on meta bonuses for passives (damage/maxHp)
+                if (pCur.damage) statsLines.push(`攻击力：+${fmt(pCur.damage)}`);
+                if (pCur.maxHp) statsLines.push(`最大生命：+${fmt(pCur.maxHp)}`);
+
+                // Skill-specific numeric lines
+                if (sid === 'quick_draw' || sid === 'haste') {
+                    statsLines.push(`攻速提升：+${pctDelta(pCur.attackCooldown)}`);
+                    mkA2B('攻速提升', pctDelta(pCur.attackCooldown), pctDelta(pNxt.attackCooldown), '');
+                }
+                if (sid === 'sharpness') {
+                    // already covered by damage line; but add explicit for clarity
+                    mkA2B('攻击力', pCur.damage, pNxt.damage, '');
+                }
+                if (sid === 'vitality' || sid === 'health_boost') {
+                    mkA2B('最大生命', pCur.maxHp, pNxt.maxHp, '');
+                }
+                if (sid === 'regen') {
+                    statsLines.push(`每秒回血：+${fmt(pCur.regen)}`);
+                    mkA2B('每秒回血', pCur.regen, pNxt.regen, '');
+                }
+                if (sid === 'iron_skin') {
+                    statsLines.push(`减伤：+${fmt(pCur.damageReduction)}`);
+                    mkA2B('减伤', pCur.damageReduction, pNxt.damageReduction, '');
+                }
+                if (sid === 'swiftness') {
+                    statsLines.push(`移速：+${fmt(pCur.speed)}`);
+                    mkA2B('移速', pCur.speed, pNxt.speed, '');
+                }
+                if (sid === 'wisdom') {
+                    statsLines.push(`经验获取：+${pct((pCur.expMultiplier - 1))}`);
+                    mkA2B('经验获取', pct(pCur.expMultiplier - 1), pct(pNxt.expMultiplier - 1), '');
+                }
+                if (sid === 'meditation') {
+                    statsLines.push(`技能冷却缩减：+${pct(pCur.cdr)}`);
+                    mkA2B('技能冷却缩减', pct(pCur.cdr), pct(pNxt.cdr), '');
+                }
+                if (sid === 'reach') {
+                    statsLines.push(`拾取范围：+${pct((pCur.magnetMultiplier - 1))}`);
+                    mkA2B('拾取范围', pct(pCur.magnetMultiplier - 1), pct(pNxt.magnetMultiplier - 1), '');
+                }
+                if (sid === 'split_shot' || sid === 'multishot') {
+                    statsLines.push(`分裂箭数量：${fmt(pCur.splitShotCount)}`);
+                    mkA2B('分裂箭数量', pCur.splitShotCount, pNxt.splitShotCount, '');
+                }
+                if (sid === 'arcane_amp') {
+                    statsLines.push(`技能伤害：+${pct(pCur.skillDmgMul - 1)}`);
+                    // skillCdMul <1 means reduced cooldown
+                    const cdRedCur = (1 - pCur.skillCdMul);
+                    const cdRedNxt = (1 - pNxt.skillCdMul);
+                    if (cdRedCur > 0.0001 || cdRedNxt > 0.0001) statsLines.push(`技能CD：-${pct(cdRedCur)}`);
+                    mkA2B('技能伤害', pct(pCur.skillDmgMul - 1), pct(pNxt.skillDmgMul - 1), '');
+                    mkA2B('技能CD', `-${pct(cdRedCur)}`, `-${pct(cdRedNxt)}`, '');
+                }
+                if (sid === 'toxic_blades') {
+                    if (pCur.poisonOnHit) {
+                        statsLines.push(`中毒DPS：${fmt(pCur.poisonOnHit.dps)}`);
+                        statsLines.push(`中毒持续：${fmt(pCur.poisonOnHit.duration)}s`);
+                        if (pCur.poisonOnHit.slow) statsLines.push(`中毒减速：${pct(pCur.poisonOnHit.slow)}`);
+                        mkA2B('中毒DPS', pCur.poisonOnHit.dps, (pNxt.poisonOnHit && pNxt.poisonOnHit.dps), '');
+                        mkA2B('中毒持续', pCur.poisonOnHit.duration, (pNxt.poisonOnHit && pNxt.poisonOnHit.duration), 's');
+                        mkA2B('中毒减速', pct(pCur.poisonOnHit.slow || 0), pct((pNxt.poisonOnHit && pNxt.poisonOnHit.slow) || 0), '');
+                    }
+                }
+                if (sid === 'adrenaline') {
+                    if (pCur.killHaste) {
+                        statsLines.push(`狂热持续：${fmt(pCur.killHaste.duration)}s`);
+                        statsLines.push(`狂热攻速倍率：×${fmt(pCur.killHaste.mul)}`);
+                        statsLines.push(`最大层数：${fmt(pCur.killHaste.maxStacks)}`);
+                        mkA2B('狂热持续', pCur.killHaste.duration, (pNxt.killHaste && pNxt.killHaste.duration), 's');
+                        mkA2B('狂热攻速倍率', pCur.killHaste.mul, (pNxt.killHaste && pNxt.killHaste.mul), '');
+                        mkA2B('最大层数', pCur.killHaste.maxStacks, (pNxt.killHaste && pNxt.killHaste.maxStacks), '');
+                    }
+                }
+
+                // If no specific lines were produced (rare), show at least something meaningful
+                if (statsLines.length === 0) {
+                    statsLines = unlocked ? ['已解锁（被动生效）'] : ['未解锁'];
+                }
+
+                // If nextA2B empty, fallback to generic meta description
+                if (!nextA2BLines || nextA2BLines.length === 0) {
+                    nextA2BLines = [];
+                }
             }
             if (statsLines.length === 0) {
                 statsLines = unlocked ? ['暂无可展示的数值项'] : ['未解锁'];
@@ -3837,6 +3970,11 @@ class Game {
             // When panel shows skills views, render content
             if (cur === 'skills') renderSkillsList();
             if (cur === 'skillDetail') renderSkillDetail();
+            if (cur === 'stageSelect') {
+                // Keep stage select UI in sync when opened in panel
+                try { this.saveManager?.updateUI(); } catch (_) { }
+                try { this.updateStageSelectUI(); } catch (_) { }
+            }
         };
 
         const openPanel = (toViewId) => {
@@ -3854,6 +3992,11 @@ class Game {
             panel.setAttribute('aria-hidden', 'true');
             panelStack.length = 0;
         };
+
+        // Expose panel APIs to class methods (e.g., openStageSelect)
+        this._openPanel = openPanel;
+        this._closePanel = closePanel;
+        this._syncPanelUI = syncPanelUI;
 
         const canGoBack = () => panelStack.length > 1;
         const goBack = () => {
@@ -4190,25 +4333,63 @@ class Game {
             tryBtn: document.getElementById('rotate-try-btn'),
             pausedState: null,
             wasPlaying: false,
+            pollTimer: null,
         };
 
         const o = this._landscape;
         if (o.tryBtn) o.tryBtn.onclick = () => { this.tryLockLandscape(); };
 
-        const onChange = () => this.updateLandscapeGate();
+        const onChange = () => {
+            // Some browsers update viewport dimensions slightly later.
+            this.updateLandscapeGate();
+            setTimeout(() => this.updateLandscapeGate(), 220);
+            setTimeout(() => this.updateLandscapeGate(), 520);
+        };
         window.addEventListener('resize', onChange, { passive: true });
         window.addEventListener('orientationchange', onChange, { passive: true });
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', onChange, { passive: true });
+            window.visualViewport.addEventListener('scroll', onChange, { passive: true });
+        }
+        try {
+            if (screen && screen.orientation && screen.orientation.addEventListener) {
+                screen.orientation.addEventListener('change', onChange);
+            }
+        } catch (_) { }
         document.addEventListener('visibilitychange', onChange, { passive: true });
+        if (window.matchMedia) {
+            const mq = window.matchMedia('(orientation: landscape)');
+            if (mq && mq.addEventListener) mq.addEventListener('change', onChange);
+        }
 
         this.updateLandscapeGate();
     }
 
     isLandscapeNow() {
+        // 1) Most reliable when available
+        try {
+            if (screen && screen.orientation && typeof screen.orientation.type === 'string') {
+                const t = screen.orientation.type;
+                if (t.includes('landscape')) return true;
+                if (t.includes('portrait')) return false;
+            }
+        } catch (_) { }
+
+        // 2) Legacy iOS Safari
+        const wo = (typeof window.orientation === 'number') ? window.orientation : null;
+        if (wo === 90 || wo === -90) return true;
+        if (wo === 0 || wo === 180) return false;
+
+        // 3) Media query
         if (window.matchMedia) {
             const m = window.matchMedia('(orientation: landscape)');
             if (m && typeof m.matches === 'boolean') return m.matches;
         }
-        return window.innerWidth >= window.innerHeight;
+
+        // 4) Viewport dims (prefer visualViewport if present)
+        const w = (window.visualViewport && window.visualViewport.width) ? window.visualViewport.width : window.innerWidth;
+        const h = (window.visualViewport && window.visualViewport.height) ? window.visualViewport.height : window.innerHeight;
+        return w >= h;
     }
 
     updateLandscapeGate() {
@@ -4219,6 +4400,11 @@ class Game {
         if (ok) {
             o.overlay.classList.add('hidden');
             o.overlay.setAttribute('aria-hidden', 'true');
+            // stop polling
+            if (o.pollTimer) {
+                clearInterval(o.pollTimer);
+                o.pollTimer = null;
+            }
             // Resume if we paused only due to orientation.
             if (o.pausedState && this.state === 'PAUSED' && o.wasPlaying) {
                 // Only resume if no modal is open.
@@ -4237,6 +4423,10 @@ class Game {
         // Portrait => hard gate.
         o.overlay.classList.remove('hidden');
         o.overlay.setAttribute('aria-hidden', 'false');
+        // Poll while blocked: some browsers don't fire reliable events.
+        if (!o.pollTimer) {
+            o.pollTimer = setInterval(() => this.updateLandscapeGate(), 350);
+        }
 
         // If in-game playing, pause and remember to resume.
         if (this.state === 'PLAYING') {
@@ -4419,18 +4609,28 @@ class Game {
             : 'easy';
         this.stageSelectDifficulty = String(bestDiff || 'easy');
 
-        document.getElementById('main-menu').classList.add('hidden');
-        const s = document.getElementById('stage-select-screen');
-        if (s) s.classList.remove('hidden');
-        this.saveManager.updateUI();
+        // Open as panel view (keep original stage-select UI)
+        if (typeof this._openPanel === 'function') {
+            this._openPanel('stageSelect');
+        } else {
+            // Fallback (legacy full-screen)
+            document.getElementById('main-menu').classList.add('hidden');
+            const s = document.getElementById('stage-select-screen');
+            if (s) s.classList.remove('hidden');
+        }
+        if (this.saveManager) this.saveManager.updateUI();
         this.updateStageSelectUI();
     }
 
     closeStageSelect() {
-        const s = document.getElementById('stage-select-screen');
-        if (s) s.classList.add('hidden');
-        document.getElementById('main-menu').classList.remove('hidden');
-        this.saveManager.updateUI();
+        if (typeof this._closePanel === 'function') {
+            this._closePanel();
+        } else {
+            const s = document.getElementById('stage-select-screen');
+            if (s) s.classList.add('hidden');
+            document.getElementById('main-menu').classList.remove('hidden');
+        }
+        if (this.saveManager) this.saveManager.updateUI();
     }
 
     stageSelectMove(dir) {
@@ -4613,9 +4813,8 @@ class Game {
         this.selectedStage = stageId;
         this.difficultyId = this.stageSelectDifficulty || 'normal';
         if (this.saveManager) this.saveManager.setLastStageSelection(this.selectedStage, this.difficultyId);
-
-        const s = document.getElementById('stage-select-screen');
-        if (s) s.classList.add('hidden');
+        // Close panel stage select before starting bonus modal
+        if (typeof this._closePanel === 'function') this._closePanel();
         this.startGameSetup();
     }
 
@@ -4632,8 +4831,6 @@ class Game {
         
         // Show Bonus Modal
         document.getElementById('main-menu').classList.add('hidden');
-        const stageSel = document.getElementById('stage-select-screen');
-        if (stageSel) stageSel.classList.add('hidden');
         document.getElementById('start-bonus-modal').classList.remove('hidden');
     }
 
@@ -4643,8 +4840,6 @@ class Game {
         document.getElementById('game-over-modal').classList.add('hidden');
         const lobby = document.getElementById('lobby-screen');
         if (lobby) lobby.classList.add('hidden');
-        const stageSel = document.getElementById('stage-select-screen');
-        if (stageSel) stageSel.classList.add('hidden');
         document.getElementById('game-container').classList.remove('hidden');
 
         // 每关波数/时长：把“单关体验”拉到接近 15 分钟（更符合“每天玩一关”的节奏）
@@ -4968,8 +5163,6 @@ class Game {
         this.updateMobileControlsVisibility();
         const lobby = document.getElementById('lobby-screen');
         if (lobby) lobby.classList.add('hidden');
-        const stageSel = document.getElementById('stage-select-screen');
-        if (stageSel) stageSel.classList.add('hidden');
         document.getElementById('game-container').classList.add('hidden');
         document.getElementById('main-menu').classList.remove('hidden');
         document.getElementById('pause-modal').classList.add('hidden');

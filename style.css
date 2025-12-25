@@ -1172,6 +1172,27 @@ body {
 }
 #stage-select-screen h1 { font-size: 54px; text-shadow: 2px 2px 4px black; margin: 0 0 8px 0; }
 
+/* Stage select inside panel system (keep original UI, but disable full-screen layout) */
+.panel-view[data-view="stageSelect"] #stage-select-screen {
+    position: static;
+    width: 100%;
+    height: auto;
+    background: transparent;
+    z-index: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 0 !important;
+}
+.panel-view[data-view="stageSelect"] .stage-carousel {
+    width: 100%;
+    justify-content: center;
+}
+.panel-view[data-view="stageSelect"] .stage-card {
+    width: min(720px, 88vw);
+}
+
 .stage-carousel {
     display: flex;
     align-items: center;
