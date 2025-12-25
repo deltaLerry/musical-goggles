@@ -3174,7 +3174,22 @@ class Player {
         this.projectileSpeed = 400;
         this.splitShotCount = 0;
 
+        // Facing / animation (smooth turning)
+        this.facingAngle = 0;        // current facing (radians)
+        this.facingTargetAngle = 0;  // desired facing
+        this.aimAngle = 0;           // last aim direction (used when standing still)
+        this.moveMag = 0;            // 0..1 for anim intensity
+        this.animT = 0;              // time accumulator
+
         this.recalculateStats();
+    }
+
+    _lerpAngle(a, b, t) {
+        // Shortest-path angle lerp
+        let d = (b - a) % (Math.PI * 2);
+        if (d > Math.PI) d -= Math.PI * 2;
+        if (d < -Math.PI) d += Math.PI * 2;
+        return a + d * t;
     }
 
     recalculateStats() {
@@ -3228,6 +3243,7 @@ class Player {
     }
 
     update(dt) {
+        this.animT += dt;
         if (this.regen > 0) this.heal(this.regen * dt);
 
         // Status timers
@@ -3265,11 +3281,23 @@ class Player {
             const ny = dy / l;
             // Analog support: small tilt => slower movement (keyboard stays full speed)
             const speedMul = Math.min(1, l);
+            this.moveMag = Math.max(this.moveMag || 0, speedMul);
+            // Turn towards movement direction (smooth)
+            this.facingTargetAngle = Math.atan2(ny, nx);
+            const turnT = 1 - Math.exp(-dt * 10.0); // smooth but responsive
+            this.facingAngle = this._lerpAngle(this.facingAngle || 0, this.facingTargetAngle || 0, turnT);
             this.x += nx * effectiveSpeed * speedMul * dt;
             this.y += ny * effectiveSpeed * speedMul * dt;
             // Clamp to world bounds (not screen bounds)
             this.x = Math.max(this.radius, Math.min(this.game.worldWidth - this.radius, this.x));
             this.y = Math.max(this.radius, Math.min(this.game.worldHeight - this.radius, this.y));
+        } else {
+            // Decay movement intensity and (when idle) face the last aim direction smoothly
+            this.moveMag = Math.max(0, (this.moveMag || 0) - dt * 2.4);
+            const idleAim = (this.aimAngle !== undefined) ? this.aimAngle : (this.facingTargetAngle || 0);
+            this.facingTargetAngle = idleAim;
+            const turnT = 1 - Math.exp(-dt * 6.0);
+            this.facingAngle = this._lerpAngle(this.facingAngle || 0, idleAim || 0, turnT);
         }
 
         this.attackTimer += dt;
@@ -3320,6 +3348,8 @@ class Player {
         const target = this.game.findNearestEnemy(this.x, this.y, 400);
         if (target) {
             const angle = Math.atan2(target.y - this.y, target.x - this.x);
+            // Remember aim direction for idle turning
+            this.aimAngle = angle;
             this.game.projectiles.push(new Projectile(this.game, this.x, this.y, target, {
                 angle,
                 damage: this.damage,
@@ -3367,11 +3397,14 @@ class Player {
         const bodyH = r * 0.95;
 
         const axis = (this.game && this.game.input && this.game.input.getMoveAxis) ? this.game.input.getMoveAxis() : { x: 0, y: 0 };
-        const tilt = Math.max(-0.18, Math.min(0.18, (axis.x || 0) * 0.14));
+        const lean = Math.max(-0.12, Math.min(0.12, (axis.x || 0) * 0.10));
+        const bob = Math.sin((this.animT || 0) * 7.0) * (0.6 + 0.9 * (this.moveMag || 0));
+        const face = (this.facingAngle || 0);
 
         ctx.save();
         ctx.translate(this.x, this.y);
-        ctx.rotate(tilt);
+        ctx.rotate(face + lean);
+        ctx.translate(0, -bob);
 
         // Shadow
         ctx.save();
@@ -3380,6 +3413,71 @@ class Player {
         ctx.beginPath();
         ctx.ellipse(0, r * 0.85, r * 0.85, r * 0.35, 0, 0, Math.PI * 2);
         ctx.fill();
+        ctx.restore();
+
+        // Tail (behind, fluffy)
+        ctx.save();
+        const tailWag = Math.sin((this.animT || 0) * 5.2) * 0.18 * (0.25 + 0.75 * (this.moveMag || 0));
+        ctx.translate(-r * 0.70, r * 0.52);
+        ctx.rotate(-0.35 + tailWag);
+        ctx.beginPath();
+        ctx.ellipse(0, 0, r * 0.32, r * 0.22, 0, 0, Math.PI * 2);
+        ctx.fillStyle = '#F2E7D5';
+        ctx.globalAlpha = 0.9;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.14)'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.restore();
+
+        // Backpack (behind body/head)
+        ctx.save();
+        ctx.translate(-r * 0.55, r * 0.10);
+        ctx.rotate(-0.10);
+        ctx.beginPath();
+        ctx.roundRect(-r * 0.28, -r * 0.18, r * 0.58, r * 0.60, r * 0.14);
+        ctx.fillStyle = '#5D4037';
+        ctx.globalAlpha = 0.88;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = 'rgba(255,255,255,0.14)'; ctx.lineWidth = 2; ctx.stroke();
+        // buckle
+        ctx.beginPath();
+        ctx.roundRect(-r * 0.10, r * 0.06, r * 0.20, r * 0.14, r * 0.05);
+        ctx.fillStyle = 'rgba(255,215,64,0.70)';
+        ctx.fill();
+
+        // Little mushroom pouch on backpack (Teemo flavor)
+        ctx.save();
+        ctx.translate(r * 0.18, r * 0.34);
+        ctx.rotate(0.18);
+        ctx.beginPath();
+        ctx.roundRect(-r * 0.20, -r * 0.16, r * 0.40, r * 0.34, r * 0.12);
+        ctx.fillStyle = 'rgba(0,0,0,0.16)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 2; ctx.stroke();
+        // mushroom icon
+        ctx.globalAlpha = 0.88;
+        ctx.fillStyle = '#FFCDD2';
+        ctx.beginPath();
+        ctx.ellipse(0, -r * 0.02, r * 0.12, r * 0.08, 0, Math.PI, 0);
+        ctx.fill();
+        ctx.fillStyle = '#FFF3E0';
+        ctx.beginPath();
+        ctx.roundRect(-r * 0.04, -r * 0.02, r * 0.08, r * 0.12, r * 0.03);
+        ctx.fill();
+        ctx.restore();
+
+        ctx.restore();
+
+        // Straps
+        ctx.save();
+        ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(-r * 0.35, r * 0.20);
+        ctx.quadraticCurveTo(-r * 0.10, r * 0.55, r * 0.10, r * 0.55);
+        ctx.moveTo(-r * 0.20, r * 0.10);
+        ctx.quadraticCurveTo(0, r * 0.40, r * 0.26, r * 0.46);
+        ctx.stroke();
         ctx.restore();
 
         // Body (small torso) + scarf
@@ -3399,7 +3497,9 @@ class Player {
         ctx.globalAlpha = 0.85;
         ctx.beginPath();
         ctx.moveTo(bodyW * 0.05, -bodyH * 0.05);
-        ctx.quadraticCurveTo(bodyW * 0.55, bodyH * 0.15, bodyW * 0.15, bodyH * 0.55);
+        // scarf tail sways a bit with movement
+        const scarfSway = Math.sin((this.animT || 0) * 7.4 + 0.6) * (bodyW * 0.08) * (0.25 + 0.75 * (this.moveMag || 0));
+        ctx.quadraticCurveTo(bodyW * 0.55 + scarfSway, bodyH * 0.15, bodyW * 0.15 + scarfSway * 0.65, bodyH * 0.55);
         ctx.quadraticCurveTo(bodyW * 0.05, bodyH * 0.25, bodyW * 0.05, -bodyH * 0.05);
         ctx.fill();
         ctx.restore();
@@ -3411,7 +3511,8 @@ class Player {
         const ear = (sx) => {
             ctx.save();
             ctx.translate(sx * headR * 0.72, -headR * 0.65);
-            ctx.rotate(sx * -0.12);
+            const w = Math.sin((this.animT || 0) * 6.0 + (sx > 0 ? 0.8 : 0.0)) * 0.10 * (0.35 + 0.65 * (this.moveMag || 0));
+            ctx.rotate(sx * (-0.12 + w));
             ctx.beginPath();
             ctx.moveTo(0, 0);
             ctx.quadraticCurveTo(sx * headR * 0.22, -headR * 0.55, sx * headR * 0.08, -headR * 0.98);
@@ -3445,15 +3546,49 @@ class Player {
         // Hat + brim
         ctx.save();
         ctx.translate(0, -headR * 0.20);
+        // big cartoon brim (more Teemo-like)
         ctx.beginPath();
-        ctx.ellipse(0, 0, headR * 0.95, headR * 0.70, 0, Math.PI, 0);
+        ctx.ellipse(0, headR * 0.10, headR * 1.05, headR * 0.30, 0, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0,0,0,0.14)';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(0, 0, headR * 1.02, headR * 0.78, 0, Math.PI, 0);
         ctx.fillStyle = '#2E7D32';
         ctx.fill();
-        // brim
+        // brim front highlight
         ctx.beginPath();
-        ctx.ellipse(0, headR * 0.08, headR * 0.92, headR * 0.22, 0, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(0,0,0,0.15)';
+        ctx.ellipse(0, headR * 0.18, headR * 0.95, headR * 0.18, 0, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.06)';
         ctx.fill();
+
+        // stitched brim line (subtle)
+        ctx.save();
+        ctx.globalAlpha = 0.55;
+        ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 6]);
+        ctx.beginPath();
+        ctx.ellipse(0, headR * 0.12, headR * 0.96, headR * 0.26, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+
+        // hat badge (Teemo-ish)
+        ctx.save();
+        ctx.rotate(0.35);
+        ctx.translate(-headR * 0.20, -headR * 0.32);
+        ctx.beginPath();
+        ctx.arc(0, 0, headR * 0.14, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255, 215, 64, 0.70)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.20)'; ctx.lineWidth = 2; ctx.stroke();
+        // tiny leaf mark
+        ctx.globalAlpha = 0.75;
+        ctx.fillStyle = '#2E7D32';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, headR * 0.06, headR * 0.10, -0.4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
         // tiny feather
         ctx.rotate(-0.35);
         ctx.beginPath();
@@ -3504,6 +3639,14 @@ class Player {
         };
         lens(-1); lens(1);
 
+        // Cheek blush (cute)
+        ctx.save();
+        ctx.globalAlpha = 0.34;
+        ctx.fillStyle = '#FF80AB';
+        ctx.beginPath(); ctx.arc(-headR * 0.42, headR * 0.28, headR * 0.14, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(headR * 0.42, headR * 0.28, headR * 0.14, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+
         // Face: nose + smile
         ctx.save();
         ctx.translate(0, headR * 0.18);
@@ -3518,6 +3661,30 @@ class Player {
         ctx.beginPath();
         ctx.arc(0, headR * 0.05, headR * 0.18, 0, Math.PI);
         ctx.stroke();
+        ctx.restore();
+
+        // Blowgun (Teemo signature) - points forward
+        ctx.save();
+        ctx.translate(headR * 0.18, headR * 0.24);
+        ctx.rotate(-0.06);
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = 'rgba(0,0,0,0.28)';
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(headR * 1.05, -headR * 0.10);
+        ctx.stroke();
+        ctx.strokeStyle = '#7CB342';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(headR * 1.05, -headR * 0.10);
+        ctx.stroke();
+        // tip
+        ctx.fillStyle = 'rgba(255,245,157,0.75)';
+        ctx.beginPath();
+        ctx.arc(headR * 1.05, -headR * 0.10, 2.4, 0, Math.PI * 2);
+        ctx.fill();
         ctx.restore();
 
         ctx.restore();
