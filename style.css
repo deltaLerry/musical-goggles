@@ -297,6 +297,37 @@ body {
 .hub-pill-label { opacity: 0.75; }
 .hub-pill-value { color: rgba(255,255,255,0.95); }
 #meta-skill-shards { color: #ffd700; }
+.currency-icon { color: #ffd700; font-weight: 1000; }
+.ui-sprite { display: none; }
+
+/* Skill sigils (SVG icons) */
+.skill-sigil {
+    width: 1em;
+    height: 1em;
+    display: inline-block;
+    vertical-align: -0.12em;
+    color: rgba(255,255,255,0.92);
+}
+.skill-sigil.inline { margin-right: 6px; }
+
+/* In-run skill icon */
+.skill-label .skill-sigil {
+    width: 22px;
+    height: 22px;
+    color: rgba(255,255,255,0.96);
+}
+
+/* Out-of-run skill list/detail: tint by archetype */
+.panel-skill-card.swift .skill-sigil,
+.panel-skill-hero.swift .skill-sigil { color: rgba(255, 87, 34, 0.98); }
+.panel-skill-card.stone .skill-sigil,
+.panel-skill-hero.stone .skill-sigil { color: rgba(225, 182, 90, 0.98); }
+.panel-skill-card.insight .skill-sigil,
+.panel-skill-hero.insight .skill-sigil { color: rgba(3, 169, 244, 0.98); }
+
+.skill-upgrade-card.swift .skill-sigil { color: rgba(255, 87, 34, 0.98); }
+.skill-upgrade-card.stone .skill-sigil { color: rgba(225, 182, 90, 0.98); }
+.skill-upgrade-card.insight .skill-sigil { color: rgba(3, 169, 244, 0.98); }
 
 .hub-stage-card {
     border-radius: 18px;

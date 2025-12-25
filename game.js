@@ -1359,6 +1359,43 @@ const SKILLS = {
     }
 };
 
+// Unified skill sigils (SVG icons) - consistent style across in-run/out-of-run UI
+const SKILL_SIGILS = {
+    // Active
+    blinding_dart: 'dart',
+    chain_lightning: 'bolt',
+    blade_storm: 'blade',
+    meteor_strike: 'meteor',
+    healing_totem: 'shield',
+    poison_nova: 'toxin',
+    mushroom_trap: 'mushroom',
+    frost_nova: 'frost',
+    // Passive
+    sharpness: 'sword',
+    quick_draw: 'dart',
+    haste: 'swiftness',
+    multishot: 'dart',
+    split_shot: 'dart',
+    toxic_blades: 'toxin',
+    adrenaline: 'blade',
+    vitality: 'heart',
+    health_boost: 'heart',
+    regen: 'heart',
+    iron_skin: 'shield',
+    swiftness: 'swiftness',
+    wisdom: 'arcane',
+    meditation: 'arcane',
+    reach: 'arcane',
+    arcane_amp: 'arcane',
+};
+const safeAttr = (s) => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+const getSkillSigilId = (id) => (SKILL_SIGILS && id && SKILL_SIGILS[id]) ? SKILL_SIGILS[id] : 'arcane';
+const skillSigilSvg = (skillId, extraClass = '') => {
+    const sid = getSkillSigilId(skillId);
+    const cls = `skill-sigil${extraClass ? ' ' + extraClass : ''}`;
+    return `<svg class="${safeAttr(cls)}" viewBox="0 0 24 24" aria-hidden="true"><use href="#sigil-${safeAttr(sid)}"></use></svg>`;
+};
+
 const ITEMS = [
     { id: 'iron_sword', name: '斩铁剑', desc: '攻击力 +20, 攻速 +5%', isHeirloom: false, stats: { damage: 20, cdr: 0.05 } },
     { id: 'dragon_scale', name: '龙鳞甲', desc: '最大生命 +100, 减伤 +5 (传承)', isHeirloom: true, stats: { maxHp: 100, damageReduction: 5 } },
@@ -1582,8 +1619,6 @@ class SaveManager {
         if (panelShardsEl) panelShardsEl.innerText = (this.data.skillShards || 0);
 
         // Hub (main menu) progress info
-        const unlockedEl = document.getElementById('hub-unlocked-stage');
-        if (unlockedEl) unlockedEl.innerText = String(this.getUnlockedStageMax());
         const selectedStageEl = document.getElementById('hub-selected-stage');
         if (selectedStageEl) selectedStageEl.innerText = String(Math.max(1, Math.floor(this.data.lastSelectedStage || 1)));
         const selectedDiffEl = document.getElementById('hub-selected-diff');
@@ -1807,7 +1842,7 @@ class SaveManager {
                 return `
                     <div class="skill-upgrade-card ${unlocked ? '' : 'locked'}" data-sid="${safe(s.id)}">
                         <div class="skill-upgrade-top">
-                            <div class="skill-upgrade-name">${safe(def.name)} <span class="skill-upgrade-tag">(${safe(tag)})</span></div>
+                            <div class="skill-upgrade-name">${skillSigilSvg(s.id, 'inline')} ${safe(def.name)} <span class="skill-upgrade-tag">(${safe(tag)})</span></div>
                             <div class="skill-upgrade-note">${unlocked ? `Lv.${curLv}/${META_SKILL_MAX_LEVEL}` : `未解锁 (Lv.${curLv}/${META_SKILL_MAX_LEVEL})`}</div>
                         </div>
                         <div class="skill-upgrade-desc">${safe(nextDesc)}</div>
@@ -3476,7 +3511,7 @@ class Game {
                 return `
                     <button class="${cls}" data-nav="skillDetail" data-skill="${safeHtml(s.id)}">
                         <div class="panel-skill-top">
-                            <div class="panel-skill-name">${safeHtml(s.def.name)} <span class="panel-tag">${safeHtml(type)}</span> <span class="panel-tag ${safeHtml(s.arch)}">${safeHtml(archLabel(s.arch))}</span></div>
+                    <div class="panel-skill-name">${skillSigilSvg(s.id, 'inline')} ${safeHtml(s.def.name)} <span class="panel-tag">${safeHtml(type)}</span> <span class="panel-tag ${safeHtml(s.arch)}">${safeHtml(archLabel(s.arch))}</span></div>
                             <div class="panel-skill-meta">${safeHtml(meta)}</div>
                         </div>
                         <div class="panel-skill-desc">${safeHtml(next)}</div>
@@ -3882,7 +3917,7 @@ class Game {
             const arch = getArchetype(sid, def);
             panelSkillDetailEl.innerHTML = `
                 <div class="panel-skill-hero ${safeHtml(arch)}">
-                    <div class="panel-skill-hero-title">${safeHtml(def.name)} <span class="panel-tag">${safeHtml(getSkillTypeLabel(def))}</span> <span class="panel-tag ${safeHtml(arch)}">${safeHtml(archLabel(arch))}</span></div>
+                    <div class="panel-skill-hero-title">${skillSigilSvg(sid, 'inline')} ${safeHtml(def.name)} <span class="panel-tag">${safeHtml(getSkillTypeLabel(def))}</span> <span class="panel-tag ${safeHtml(arch)}">${safeHtml(archLabel(arch))}</span></div>
                     <div class="panel-skill-corner"><span>💠</span><span>${safeHtml(shards)}</span></div>
                     <div class="panel-skill-hero-sub">${safeHtml(unlocked ? `Lv.${lv}/${META_SKILL_MAX_LEVEL}` : `未解锁 · Lv.${lv}/${META_SKILL_MAX_LEVEL}`)} · 已消耗碎片 ${safeHtml(spent)}</div>
                 </div>
@@ -4049,10 +4084,10 @@ class Game {
             root.innerHTML = `
                 <div class="panel-card">
                     <div class="panel-card-title">玩家信息</div>
-                    <div class="panel-card-desc">玩家：<b>玩家</b></div>
-                    <div class="panel-card-desc">技能碎片：<b>${safe(shards)}</b></div>
-                    <div class="panel-card-desc">已解锁关卡：第 <b>${safe(unlockedStage)}</b> 关</div>
-                    <div class="panel-card-desc">上次选择：第 <b>${safe(lastStage)}</b> 关 · <b>${safe(lastDiff)}</b></div>
+                    <div class="panel-card-desc">👤 玩家：<b>玩家</b></div>
+                    <div class="panel-card-desc">💠 碎片：<b>${safe(shards)}</b></div>
+                    <div class="panel-card-desc">🗺 已解锁：第 <b>${safe(unlockedStage)}</b> 关</div>
+                    <div class="panel-card-desc">🎯 上次选择：第 <b>${safe(lastStage)}</b> 关 · <b>${safe(lastDiff)}</b></div>
                 </div>
 
                 <div class="panel-card">
@@ -4083,6 +4118,13 @@ class Game {
                 const out = [];
                 parts.forEach(p => { if (out.length === 0 || out[out.length - 1] !== p) out.push(p); });
                 panelCrumbs.innerText = out.join(' > ');
+            }
+
+            // Header resources: only show shards pill on pages that truly need it
+            const shardsPill = document.querySelector('.panel-header .panel-shards-pill');
+            if (shardsPill) {
+                const need = (cur === 'skills' || cur === 'skillDetail');
+                shardsPill.style.display = need ? '' : 'none';
             }
 
             // When panel shows skills views, render content
@@ -4840,7 +4882,7 @@ class Game {
             const shards = Math.floor((2 + Math.floor(meta.id * 0.9)) * mul);
             const div = document.createElement('div');
             div.className = 'reward-preview-chip';
-            div.innerHTML = `<b>技能碎片</b> +${shards}`;
+            div.innerHTML = `<b title="技能碎片">💠</b> +${shards}`;
             rewardEl.appendChild(div);
         }
 
@@ -4899,7 +4941,7 @@ class Game {
         this.bonusSkillId = randomId;
         
         const skill = SKILLS[randomId];
-        document.getElementById('bonus-skill-name').innerText = skill.name;
+        document.getElementById('bonus-skill-name').innerHTML = `${skillSigilSvg(randomId, 'inline')}${safeHtml(skill.name)}`;
         document.getElementById('bonus-skill-desc').innerText = skill.desc(1);
         
         // Show Bonus Modal
@@ -5281,11 +5323,11 @@ class Game {
 
         const rows = [];
         // 基础个人信息（局外）
-        rows.push(`<div class="stat-row" style="grid-column: 1 / -1;"><span>玩家信息</span><span class="stat-val">玩家</span></div>`);
-        rows.push(`<div class="stat-row"><span>技能碎片</span><span class="stat-val">${safe(shards)}</span></div>`);
-        rows.push(`<div class="stat-row"><span>已解锁关卡</span><span class="stat-val">第 ${safe(unlockedStage)} 关</span></div>`);
-        rows.push(`<div class="stat-row" style="grid-column: 1 / -1;"><span>上次选择</span><span class="stat-val">第 ${safe(lastStage)} 关 · ${safe(lastDiff)}</span></div>`);
-        rows.push(`<div class="stat-row" style="grid-column: 1 / -1;"><span>传承装备</span><span class="stat-val">${heirloomNames.length ? safe(heirloomNames.join('、')) : '暂无'}</span></div>`);
+        rows.push(`<div class="stat-row" style="grid-column: 1 / -1;"><span>👤 玩家信息</span><span class="stat-val">玩家</span></div>`);
+        rows.push(`<div class="stat-row"><span>💠 碎片</span><span class="stat-val">${safe(shards)}</span></div>`);
+        rows.push(`<div class="stat-row"><span>🗺 已解锁</span><span class="stat-val">第 ${safe(unlockedStage)} 关</span></div>`);
+        rows.push(`<div class="stat-row" style="grid-column: 1 / -1;"><span>🎯 上次选择</span><span class="stat-val">第 ${safe(lastStage)} 关 · ${safe(lastDiff)}</span></div>`);
+        rows.push(`<div class="stat-row" style="grid-column: 1 / -1;"><span>🧬 传承装备</span><span class="stat-val">${heirloomNames.length ? safe(heirloomNames.join('、')) : '暂无'}</span></div>`);
 
         // 局内状态（暂停时展示）
         rows.push(`<div class="stat-row" style="grid-column: 1 / -1; border-bottom: none; padding-top: 10px;"><span>局内状态</span><span class="stat-val">${hasRun ? '当前关卡' : '未进入关卡'}</span></div>`);
@@ -5854,7 +5896,7 @@ class Game {
             const hue = Math.round(120 * pct);
             const ringColor = `hsl(${hue}, 90%, 55%)`;
 
-            const label = (def.name && def.name.length > 0) ? def.name[0] : '?';
+            const label = skillSigilSvg(s.id);
             const tip = safe(def.name) + ` (Lv.${lvl})\n` + safe(def.desc ? def.desc(lvl) : '');
 
             html += `
@@ -5865,7 +5907,7 @@ class Game {
                             stroke-dasharray="${C.toFixed(3)}"
                             stroke-dashoffset="${dashOffset.toFixed(3)}" />
                     </svg>
-                    <div class="skill-label">${safe(label)}</div>
+                    <div class="skill-label">${label}</div>
                     <div class="skill-level">${lvl}</div>
                 </div>
             `;
@@ -6221,7 +6263,7 @@ class Game {
             const lvl = (this.player.skills[id]||0) + 1;
             const d = document.createElement('div');
             d.className = 'upgrade-card';
-            d.innerHTML = `<h3>${def.name} Lv.${lvl}</h3><p>${def.desc(lvl)}</p>`;
+            d.innerHTML = `<h3>${skillSigilSvg(id, 'inline')}${def.name} Lv.${lvl}</h3><p>${def.desc(lvl)}</p>`;
             d.onclick = () => {
                 this.player.skills[id] = lvl;
                 this.player.gainExp(0);

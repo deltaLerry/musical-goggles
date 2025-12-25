@@ -39,13 +39,7 @@
                     <div class="hub-top-stats" aria-label="资源栏">
                         <div class="hub-pill" title="技能碎片">
                             <span class="hub-pill-icon">💠</span>
-                            <span class="hub-pill-label">碎片</span>
                             <span class="hub-pill-value" id="meta-skill-shards">0</span>
-                        </div>
-                        <div class="hub-pill" title="已解锁关卡">
-                            <span class="hub-pill-icon">🔓</span>
-                            <span class="hub-pill-label">解锁</span>
-                            <span class="hub-pill-value">第 <span id="hub-unlocked-stage">1</span> 关</span>
                         </div>
                     </div>
                 </div>
@@ -196,7 +190,6 @@
                     <div id="stage-select-screen">
                         <h1>选择关卡</h1>
                         <div class="subtitle">左右滑动切换 · 选择难度</div>
-                        <div class="currency-display">技能碎片: <span id="stage-select-skill-shards">0</span></div>
 
                         <div class="stage-carousel">
                             <div class="stage-card">
@@ -274,7 +267,7 @@
     <div id="shop-screen" class="hidden">
         <button id="shop-back-btn" class="icon-btn screen-close" title="关闭">✕</button>
         <h2>传承与局外成长</h2>
-        <div class="currency-display">技能碎片: <span id="shop-skill-shards">0</span></div>
+        <div class="currency-display" title="技能碎片"><span class="currency-icon">💠</span> <span id="shop-skill-shards">0</span></div>
         
         <div id="heirloom-display" class="hidden">
             <h3>传承装备 (已激活)</h3>
@@ -425,11 +418,60 @@
             <div class="modal-content">
                 <h2 id="end-title">游戏结束</h2>
                 <p>存活时间: <span id="final-time"></span></p>
-                <p>获得技能碎片: <span id="gained-points">0</span></p>
+            <p title="获得技能碎片"><span class="currency-icon">💠</span> +<span id="gained-points">0</span></p>
                 <button id="return-menu-btn">返回主菜单</button>
             </div>
         </div>
     </div>
+
+<!-- UI Icon Sprite (skill icons, etc.) -->
+<svg aria-hidden="true" class="ui-sprite" width="0" height="0" style="position:absolute; width:0; height:0; overflow:hidden;">
+    <symbol id="sigil-dart" viewBox="0 0 24 24">
+        <path d="M4 20L20 4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+        <path d="M14 4h6v6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="sigil-bolt" viewBox="0 0 24 24">
+        <path d="M13 2L4 14h7l-1 8 10-14h-7l0-6z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="sigil-blade" viewBox="0 0 24 24">
+        <path d="M12 3l3 6-3 3-3-3 3-6z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/>
+        <path d="M12 12v9" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="sigil-meteor" viewBox="0 0 24 24">
+        <path d="M4 10c6 0 8-6 16-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+        <path d="M14 14a4 4 0 1 1-8 0a4 4 0 0 1 8 0z" fill="none" stroke="currentColor" stroke-width="2.2"/>
+    </symbol>
+    <symbol id="sigil-shield" viewBox="0 0 24 24">
+        <path d="M12 2l8 4v6c0 6-4 9-8 10C8 21 4 18 4 12V6l8-4z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="sigil-toxin" viewBox="0 0 24 24">
+        <path d="M8 3h8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+        <path d="M10 3v5l-4 7a6 6 0 0 0 12 0l-4-7V3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/>
+        <path d="M9 14h6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="sigil-mushroom" viewBox="0 0 24 24">
+        <path d="M6 11a6 6 0 0 1 12 0H6z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/>
+        <path d="M10 11v8a2 2 0 0 0 4 0v-8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="sigil-frost" viewBox="0 0 24 24">
+        <path d="M12 2v20M4 7l16 10M20 7L4 17" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="sigil-sword" viewBox="0 0 24 24">
+        <path d="M14 3l7 7-2 2-7-7 2-2z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/>
+        <path d="M12 5L4 13v3h3l8-8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="sigil-swiftness" viewBox="0 0 24 24">
+        <path d="M4 14c2-4 6-6 10-6 4 0 6 2 6 2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+        <path d="M6 18h10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="sigil-heart" viewBox="0 0 24 24">
+        <path d="M12 21s-7-4.6-9-9c-1.2-2.8.4-6 3.6-7 2-.6 4 .2 5.4 1.7C13.4 5.2 15.4 4.4 17.4 5c3.2 1 4.8 4.2 3.6 7-2 4.4-9 9-9 9z" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="sigil-arcane" viewBox="0 0 24 24">
+        <path d="M12 3l8 5v8l-8 5-8-5V8l8-5z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/>
+        <path d="M12 7v10" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round"/>
+    </symbol>
+</svg>
     <script src="game.js"></script>
 </body>
 </html>
