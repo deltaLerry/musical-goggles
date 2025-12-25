@@ -456,6 +456,149 @@ class SoundManager {
     }
 }
 
+// --- Meta Skill Upgrades (Out-of-run progression) ---
+// 每个技能 5 条强化线：伤害 / 范围 / 冷却 / 数量 / 机制（机制=质变）。
+const META_UPGRADE_KEYS = ['dmg', 'range', 'cd', 'qty', 'mech'];
+const META_UPGRADE_CONF = {
+    dmg: { name: '伤害', max: 10, base: 2, growth: 1.28, perLv: 0.08 },     // +8% / lv
+    range: { name: '范围', max: 10, base: 2, growth: 1.28, perLv: 0.06 },   // +6% / lv
+    cd: { name: '冷却', max: 10, base: 3, growth: 1.32, perLv: 0.05 },      // -5% / lv（乘算）
+    qty: { name: '数量', max: 5, base: 4, growth: 1.48, perLv: 1 },         // +1 / lv（语义由技能决定）
+    mech: { name: '机制', max: 3, base: 6, growth: 1.65, perLv: 1 },        // 解锁 1~3 档机制
+};
+
+const META_SKILL_SPECIAL = {
+    poison_nova: {
+        qtyName: '毒圈数量',
+        mech: [
+            '强酸：毒伤命中会施加“腐蚀”(减速)',
+            '孢子：毒圈会额外造成短暂中毒（叠加）',
+            '剧毒共鸣：目标已中毒时，毒伤额外结算一次小幅伤害'
+        ]
+    },
+    blinding_dart: {
+        qtyName: '目标数',
+        mech: [
+            '毒镖：吹箭命中附带中毒',
+            '穿心：命中时若目标已被眩晕，伤害提高',
+            '追猎：每次释放额外发射 1 枚“追踪毒镖”'
+        ]
+    },
+    mushroom_trap: {
+        qtyName: '蘑菇数量',
+        mech: [
+            '孢子云：爆炸后留下短暂毒雾（减速）',
+            '连环：爆炸会引爆附近蘑菇（小范围）',
+            '菌毯：毒雾持续更久且伤害提高'
+        ]
+    },
+    chain_lightning: {
+        qtyName: '跳跃次数',
+        mech: [
+            '余波：每次命中会溅射小范围电弧',
+            '分叉：每次释放额外连锁 1 个随机目标（若存在）',
+            '感电：被击中的敌人短暂减速（DOT减速）'
+        ]
+    },
+    frost_nova: {
+        qtyName: '脉冲次数',
+        mech: [
+            '冰面：冻结后留下冰面减速区',
+            '二段：短延迟追加一次小幅冰爆',
+            '极寒：冻结时间小幅提升'
+        ]
+    },
+    blade_storm: {
+        qtyName: '刀刃数量',
+        mech: [
+            '流血：刀刃附带轻微中毒/减速',
+            '回旋：即使未满级，也会追加一轮回旋刀刃',
+            '刀阵：脚下形成短暂刀阵（范围伤害）'
+        ]
+    },
+    healing_totem: {
+        qtyName: '图腾数量',
+        mech: [
+            '护佑：站在图腾内获得临时减伤',
+            '净化：图腾会缓慢驱散致盲/减速',
+            '随行：图腾会跟随自身移动（弱化）'
+        ]
+    },
+    meteor_strike: {
+        qtyName: '陨石数量',
+        mech: [
+            '余震：命中后追加一次小余震爆炸',
+            '灼风：爆炸同时造成短暂减速（DOT减速）',
+            '天火：燃烧地面更强（持续/伤害）'
+        ]
+    }
+};
+
+function metaGetUpgradeCost(skillId, key, lvlNow) {
+    const conf = META_UPGRADE_CONF[key];
+    if (!conf) return 999999;
+    const n = Math.max(0, Math.floor(lvlNow || 0));
+    const cost = Math.floor(conf.base * Math.pow(conf.growth, n) + n * 0.75);
+    return Math.max(1, cost);
+}
+
+function metaGetStateFromSave(saveManager, skillId) {
+    const base = { dmg: 0, range: 0, cd: 0, qty: 0, mech: 0 };
+    const sm = saveManager;
+    if (!sm || !sm.data) return { ...base };
+    if (!sm.data.skillUpgrades || typeof sm.data.skillUpgrades !== 'object') sm.data.skillUpgrades = {};
+    const st = sm.data.skillUpgrades[skillId];
+    if (!st || typeof st !== 'object') return { ...base };
+    META_UPGRADE_KEYS.forEach(k => {
+        const v = Math.max(0, Math.floor(st[k] || 0));
+        base[k] = v;
+    });
+    return base;
+}
+
+function metaApplyToParams(game, skillId, params) {
+    const sm = game && game.saveManager ? game.saveManager : null;
+    const st = metaGetStateFromSave(sm, skillId);
+    const dmgMul = 1 + (META_UPGRADE_CONF.dmg.perLv * st.dmg);
+    const rangeMul = 1 + (META_UPGRADE_CONF.range.perLv * st.range);
+    const cdMul = Math.max(0.55, Math.pow(1 - META_UPGRADE_CONF.cd.perLv, st.cd));
+
+    const p = params || {};
+    if (p.cooldown !== undefined) p.cooldown = Math.max(0.35, p.cooldown * cdMul);
+
+    // Common damage keys
+    ['damage', 'dmg', 'dmgPerTick', 'burnDps'].forEach(k => {
+        if (p[k] !== undefined) p[k] = p[k] * dmgMul;
+    });
+
+    // Common range keys
+    ['radius', 'range', 'aoeRadius', 'triggerRadius'].forEach(k => {
+        if (p[k] !== undefined) p[k] = p[k] * rangeMul;
+    });
+
+    // Quantity application (skill-specific)
+    const q = Math.max(0, st.qty);
+    if (skillId === 'blinding_dart' && p.shots !== undefined) p.shots = Math.min(10, p.shots + q);
+    if (skillId === 'mushroom_trap' && p.count !== undefined) p.count = Math.min(10, p.count + q);
+    if (skillId === 'chain_lightning' && p.jumps !== undefined) p.jumps = Math.min(18, p.jumps + q);
+    if (skillId === 'blade_storm' && p.blades !== undefined) p.blades = Math.min(60, p.blades + q * 2);
+    if (skillId === 'frost_nova') p.pulses = Math.min(6, 1 + q);
+    if (skillId === 'healing_totem') p.totems = Math.min(4, 1 + q);
+    if (skillId === 'meteor_strike') p.meteors = Math.min(4, 1 + q);
+    if (skillId === 'poison_nova') p.novas = Math.min(4, 1 + q);
+
+    const mech = Math.max(0, Math.min(META_UPGRADE_CONF.mech.max, st.mech));
+    p._meta = { ...st, dmgMul, rangeMul, cdMul, mech };
+
+    // Minor direct tweaks from mechanism levels
+    if (skillId === 'frost_nova' && mech >= 3 && p.freeze !== undefined) p.freeze = p.freeze + 0.25;
+    if (skillId === 'meteor_strike' && mech >= 3) {
+        if (p.burnDur !== undefined) p.burnDur = p.burnDur * 1.35;
+        if (p.burnDps !== undefined) p.burnDps = p.burnDps * 1.25;
+    }
+    return p;
+}
+
 const SKILLS = {
     'sharpness': { id: 'sharpness', name: '锋利', type: 'passive', maxLevel: 10, unlockCost: 0, unlockDesc: '基础被动：稳定提升普攻伤害。', desc: (lvl) => `攻击力 +${12}`, apply: (p, lvl) => p.damage += 12 * lvl },
     'quick_draw': { id: 'quick_draw', name: '快速拔枪', type: 'passive', maxLevel: 10, unlockCost: 0, unlockDesc: '基础被动：提升普攻频率。', desc: (lvl) => `攻速 +10%`, apply: (p, lvl) => p.attackCooldown *= Math.pow(0.96, lvl) },
@@ -482,7 +625,7 @@ const SKILLS = {
             const dmgPerTick = (8 + lvl * 6) * skillMul;
             const tickInterval = (lvl >= 4 ? 0.4 : 0.5);
             const followPlayer = (lvl >= 5);
-            return { cooldown, radius, duration, dmgPerTick, tickInterval, followPlayer };
+            return metaApplyToParams(game, 'poison_nova', { cooldown, radius, duration, dmgPerTick, tickInterval, followPlayer });
         },
         desc: (lvl) => {
             const cd = Math.max(2.3, 5.4 - 0.52 * lvl);
@@ -501,11 +644,23 @@ const SKILLS = {
             // 技能音效：释放（不做受伤/被攻击音效）
             if (game && game.sfx) game.sfx.play('skill');
             const p = params || (SKILLS['poison_nova'].getParams ? SKILLS['poison_nova'].getParams(game, lvl, game.player) : null);
-            const x = game.player.x, y = game.player.y;
-            game.createAoE(x, y, p.radius, p.duration, p.dmgPerTick, 'rgba(156, 39, 176, 0.35)', 'enemies', {
-                tickInterval: p.tickInterval,
-                follow: p.followPlayer ? 'player' : null
-            });
+            const x0 = game.player.x, y0 = game.player.y;
+            const times = Math.max(1, Math.floor(p.novas || 1));
+            const mech = (p._meta && p._meta.mech) ? p._meta.mech : 0;
+            for (let i = 0; i < times; i++) {
+                const ox = (Math.random() - 0.5) * 18 * i;
+                const oy = (Math.random() - 0.5) * 18 * i;
+                const rMul = (i === 0 ? 1 : (0.92 + Math.random() * 0.12));
+                game.createAoE(x0 + ox, y0 + oy, p.radius * rMul, p.duration, p.dmgPerTick, 'rgba(156, 39, 176, 0.35)', 'enemies', {
+                    tickInterval: p.tickInterval,
+                    follow: p.followPlayer ? 'player' : null,
+                    onTickEnemy: (g, e) => {
+                        if (mech >= 1 && typeof e.applyDot === 'function') e.applyDot(0, 1.0, 0.16);
+                        if (mech >= 2 && typeof e.applyDot === 'function') e.applyDot(Math.max(1, p.dmgPerTick * 0.22), 1.4, 0.08);
+                        if (mech >= 3 && (e.dotTimer || 0) > 0.1) e.takeDamage(p.dmgPerTick * 0.18);
+                    }
+                });
+            }
         }
     },
     'blinding_dart': {
@@ -526,7 +681,7 @@ const SKILLS = {
             const damage = (22 + lvl * 12) * skillMul;
             const stunDuration = Math.min(2.2, 0.7 + lvl * 0.22);
             const shots = (lvl >= 5 ? 2 : 1);
-            return { cooldown, range, damage, stunDuration, shots };
+            return metaApplyToParams(game, 'blinding_dart', { cooldown, range, damage, stunDuration, shots });
         },
         desc: (lvl) => {
             const cd = Math.max(1.7, 3.4 - 0.32 * lvl);
@@ -545,6 +700,7 @@ const SKILLS = {
             if (game && game.sfx) game.sfx.play('skill');
             const p = params || (SKILLS['blinding_dart'].getParams ? SKILLS['blinding_dart'].getParams(game, lvl, game.player) : null);
             const targets = game.findNearestEnemies(game.player.x, game.player.y, p.range, p.shots);
+            const mech = (p._meta && p._meta.mech) ? p._meta.mech : 0;
             targets.forEach(t => {
                 game.projectiles.push(new Projectile(game, game.player.x, game.player.y, t, {
                     damage: p.damage,
@@ -552,9 +708,27 @@ const SKILLS = {
                     speed: 650,
                     type: 'dart',
                     radius: 4,
-                    stunDuration: p.stunDuration
+                    stunDuration: p.stunDuration,
+                    dot: (mech >= 1 ? { dps: Math.max(1, p.damage * 0.18), duration: 2.0, slow: 0.12 } : null),
+                    onHitEnemy: (g, proj, e) => {
+                        if (mech >= 2 && (e.stunned || 0) > 0.01) e.takeDamage(p.damage * 0.35);
+                    }
                 }));
             });
+            if (mech >= 3) {
+                const t = game.findNearestEnemy(game.player.x, game.player.y, p.range);
+                if (t) {
+                    game.projectiles.push(new Projectile(game, game.player.x, game.player.y, t, {
+                        damage: p.damage * 0.65,
+                        color: 'rgba(76, 175, 80, 0.95)',
+                        speed: 720,
+                        type: 'dart',
+                        radius: 4,
+                        stunDuration: Math.max(0.4, p.stunDuration * 0.6),
+                        dot: { dps: Math.max(1, p.damage * 0.14), duration: 2.2, slow: 0.16 }
+                    }));
+                }
+            }
         }
     },
     'mushroom_trap': {
@@ -577,7 +751,7 @@ const SKILLS = {
             const aoeRadius = 100 + lvl * 10;
             const armTime = (lvl >= 5 ? 0.35 : 1.0);
             const stunDuration = (lvl >= 4 ? 2.2 : 1.5);
-            return { cooldown, damage, count, triggerRadius, aoeRadius, armTime, stunDuration };
+            return metaApplyToParams(game, 'mushroom_trap', { cooldown, damage, count, triggerRadius, aoeRadius, armTime, stunDuration });
         },
         desc: (lvl) => {
             const cd = Math.max(1.9, 4.3 - 0.40 * lvl);
@@ -596,6 +770,7 @@ const SKILLS = {
             // 技能音效：释放（不做受伤/被攻击音效）
             if (game && game.sfx) game.sfx.play('skill');
             const p = params || (SKILLS['mushroom_trap'].getParams ? SKILLS['mushroom_trap'].getParams(game, lvl, game.player) : null);
+            const mech = (p._meta && p._meta.mech) ? p._meta.mech : 0;
             for (let i = 0; i < p.count; i++) {
                 const ox = (Math.random() - 0.5) * 40;
                 const oy = (Math.random() - 0.5) * 40;
@@ -603,7 +778,14 @@ const SKILLS = {
                     triggerRadius: p.triggerRadius,
                     aoeRadius: p.aoeRadius,
                     armTime: p.armTime,
-                    stunDuration: p.stunDuration
+                    stunDuration: p.stunDuration,
+                    leavePool: (mech >= 1 ? {
+                        radius: p.aoeRadius * 0.72,
+                        duration: (mech >= 3 ? 2.8 : 1.9),
+                        dps: (mech >= 3 ? p.damage * 0.22 : p.damage * 0.16),
+                        slow: 0.18
+                    } : null),
+                    chainExplode: (mech >= 2)
                 });
             }
         }
@@ -697,7 +879,7 @@ const SKILLS = {
             const jumps = 2 + lvl; // 3~7
             const dmg = (18 + lvl * 14) * ((caster && caster.skillDmgMul) ? caster.skillDmgMul : 1);
             const stun = (lvl >= 5 ? 0.65 : 0);
-            return { cooldown, range, jumps, dmg, stun };
+            return metaApplyToParams(game, 'chain_lightning', { cooldown, range, jumps, dmg, stun });
         },
         desc: (lvl) => {
             const rawCd = Math.max(2.6, 6.2 - 0.55 * lvl);
@@ -710,6 +892,7 @@ const SKILLS = {
         onActivate: (game, lvl, params) => {
             if (game && game.sfx) game.sfx.play('skill');
             const p = params || SKILLS['chain_lightning'].getParams(game, lvl, game.player);
+            const mech = (p._meta && p._meta.mech) ? p._meta.mech : 0;
             const hits = game.findNearestEnemies(game.player.x, game.player.y, p.range, p.jumps);
             let prev = { x: game.player.x, y: game.player.y };
             hits.forEach((e, idx) => {
@@ -717,7 +900,24 @@ const SKILLS = {
                 if (p.stun > 0 && idx === hits.length - 1) e.stunned = Math.max(e.stunned || 0, p.stun);
                 game.addSkillFxLine(prev.x, prev.y, e.x, e.y, 'rgba(33,150,243,0.85)');
                 prev = { x: e.x, y: e.y };
+                if (mech >= 1) {
+                    game.createAoE(e.x, e.y, 70, 0.10, 0, 'rgba(33,150,243,0.18)', 'enemies', {
+                        tickInterval: 0.06,
+                        onTickEnemy: (g, ee) => ee.takeDamage(p.dmg * 0.22)
+                    });
+                }
+                if (mech >= 3 && typeof e.applyDot === 'function') {
+                    e.applyDot(0, 1.0, 0.16);
+                }
             });
+            if (mech >= 2 && hits.length > 0) {
+                const last = hits[hits.length - 1];
+                const extra = game.findNearestEnemies(last.x, last.y, 220, 2).filter(x => !hits.includes(x))[0];
+                if (extra) {
+                    extra.takeDamage(p.dmg * 0.8);
+                    game.addSkillFxLine(last.x, last.y, extra.x, extra.y, 'rgba(144,202,249,0.85)');
+                }
+            }
         }
     },
     'frost_nova': {
@@ -737,7 +937,7 @@ const SKILLS = {
             const dmg = (20 + lvl * 10) * ((caster && caster.skillDmgMul) ? caster.skillDmgMul : 1);
             const freeze = 0.5 + lvl * 0.18; // 0.68~1.4
             const shatterBonus = (lvl >= 4 ? 0.25 : 0); // 额外伤害
-            return { cooldown, radius, dmg, freeze, shatterBonus };
+            return metaApplyToParams(game, 'frost_nova', { cooldown, radius, dmg, freeze, shatterBonus });
         },
         desc: (lvl) => {
             const rawCd = Math.max(3.0, 7.4 - 0.6 * lvl);
@@ -750,16 +950,41 @@ const SKILLS = {
         onActivate: (game, lvl, params) => {
             if (game && game.sfx) game.sfx.play('skill');
             const p = params || SKILLS['frost_nova'].getParams(game, lvl, game.player);
+            const mech = (p._meta && p._meta.mech) ? p._meta.mech : 0;
+            const pulses = Math.max(1, Math.floor(p.pulses || 1));
             // 一次性爆发：用 AoE 触发一次 tick + 控制
-            game.createAoE(game.player.x, game.player.y, p.radius, 0.12, 0, 'rgba(33, 150, 243, 0.28)', 'enemies', {
-                tickInterval: 0.06,
-                onTickEnemy: (g, e) => {
-                    const was = e.stunned || 0;
-                    e.stunned = Math.max(was, p.freeze);
-                    const extra = (p.shatterBonus > 0 && was > 0.01) ? (p.dmg * p.shatterBonus) : 0;
-                    e.takeDamage(p.dmg + extra);
-                }
-            });
+            const doPulse = (mul) => {
+                game.createAoE(game.player.x, game.player.y, p.radius, 0.12, 0, 'rgba(33, 150, 243, 0.28)', 'enemies', {
+                    tickInterval: 0.06,
+                    onTickEnemy: (g, e) => {
+                        const was = e.stunned || 0;
+                        e.stunned = Math.max(was, p.freeze);
+                        const extra = (p.shatterBonus > 0 && was > 0.01) ? (p.dmg * p.shatterBonus) : 0;
+                        e.takeDamage(p.dmg * mul + extra);
+                    }
+                });
+            };
+            doPulse(1.0);
+            for (let i = 2; i <= pulses; i++) {
+                const mul = Math.max(0.45, 1 - (i - 1) * 0.18);
+                setTimeout(() => { if (game && game.state === 'PLAYING') doPulse(mul); }, 90 * (i - 1));
+            }
+
+            if (mech >= 1) {
+                game.createAoE(game.player.x, game.player.y, p.radius * 0.7, 1.9, 0, 'rgba(33,150,243,0.14)', 'enemies', {
+                    tickInterval: 0.25,
+                    onTickEnemy: (g, e) => { if (typeof e.applyDot === 'function') e.applyDot(0, 0.9, 0.22); }
+                });
+            }
+            if (mech >= 2) {
+                setTimeout(() => {
+                    if (!game || game.state !== 'PLAYING') return;
+                    game.createAoE(game.player.x, game.player.y, p.radius * 0.65, 0.12, 0, 'rgba(144,202,249,0.18)', 'enemies', {
+                        tickInterval: 0.06,
+                        onTickEnemy: (g, e) => e.takeDamage(p.dmg * 0.45)
+                    });
+                }, 260);
+            }
         }
     }
     ,
@@ -781,7 +1006,7 @@ const SKILLS = {
             const speed = 520 + lvl * 40;
             const radius = 4;
             const returnWave = (lvl >= 5);
-            return { cooldown, blades, dmg, speed, radius, returnWave };
+            return metaApplyToParams(game, 'blade_storm', { cooldown, blades, dmg, speed, radius, returnWave });
         },
         desc: (lvl) => {
             const rawCd = Math.max(3.4, 8.2 - 0.7 * lvl);
@@ -794,7 +1019,13 @@ const SKILLS = {
             if (game && game.sfx) game.sfx.play('skill');
             const p = params || SKILLS['blade_storm'].getParams(game, lvl, game.player);
             const baseX = game.player.x, baseY = game.player.y;
-            const dot = (game.player && game.player.poisonOnHit) ? { ...game.player.poisonOnHit, dps: (game.player.poisonOnHit.dps || 0) * 0.5 } : null;
+            const mech = (p._meta && p._meta.mech) ? p._meta.mech : 0;
+            let dot = (game.player && game.player.poisonOnHit) ? { ...game.player.poisonOnHit, dps: (game.player.poisonOnHit.dps || 0) * 0.5 } : null;
+            if (mech >= 1) {
+                const extra = { dps: 4 + lvl * 1.5, duration: 2.0, slow: 0.12 };
+                if (!dot) dot = extra;
+                else dot = { dps: Math.max(dot.dps || 0, extra.dps), duration: Math.max(dot.duration || 0, extra.duration), slow: Math.max(dot.slow || 0, extra.slow) };
+            }
             for (let i = 0; i < p.blades; i++) {
                 const ang = (i / p.blades) * Math.PI * 2;
                 game.projectiles.push(new Projectile(game, baseX, baseY, null, {
@@ -806,9 +1037,16 @@ const SKILLS = {
                     dot
                 }));
             }
-            if (p.returnWave) {
+            const wantReturn = p.returnWave || (mech >= 2);
+            if (wantReturn) {
                 // 小延迟再喷一轮，让“满级有质变”更明显
                 game.skillFx.push({ t: -0.35, d: 0.36, type: 'blade_return', x: baseX, y: baseY, p });
+            }
+            if (mech >= 3) {
+                game.createAoE(baseX, baseY, 120, 1.2, 0, 'rgba(255,215,0,0.10)', 'enemies', {
+                    tickInterval: 0.22,
+                    onTickEnemy: (g, e) => e.takeDamage(p.dmg * 0.28)
+                });
             }
         }
     },
@@ -830,7 +1068,7 @@ const SKILLS = {
             const heal = 10 + lvl * 6;
             const tickInterval = 0.6;
             const dmg = (lvl >= 4 ? (6 + lvl * 3) * ((caster && caster.skillDmgMul) ? caster.skillDmgMul : 1) : 0);
-            return { cooldown, radius, duration, heal, tickInterval, dmg };
+            return metaApplyToParams(game, 'healing_totem', { cooldown, radius, duration, heal, tickInterval, dmg });
         },
         desc: (lvl) => {
             const rawCd = Math.max(4.2, 10.2 - 0.8 * lvl);
@@ -843,16 +1081,32 @@ const SKILLS = {
         onActivate: (game, lvl, params) => {
             if (game && game.sfx) game.sfx.play('skill');
             const p = params || SKILLS['healing_totem'].getParams(game, lvl, game.player);
-            const x = game.player.x, y = game.player.y;
-            // 注意：createAoE 默认会对敌人造成 dmg，因此这里把 dmg=0，通过 onTickEnemy 精确控制，避免重复伤害。
-            game.createAoE(x, y, p.radius, p.duration, 0, 'rgba(0, 230, 118, 0.18)', 'both', {
-                tickInterval: p.tickInterval,
-                playerDamage: false,
-                onTickPlayer: (g, plr) => plr.heal(p.heal),
-                onTickEnemy: (g, e) => {
-                    if (p.dmg > 0) e.takeDamage(p.dmg);
-                }
-            });
+            const mech = (p._meta && p._meta.mech) ? p._meta.mech : 0;
+            const totems = Math.max(1, Math.floor(p.totems || 1));
+            for (let i = 0; i < totems; i++) {
+                const ang = (totems === 1 ? 0 : (i / totems) * Math.PI * 2);
+                const rr = (totems === 1 ? 0 : 46);
+                const x = game.player.x + Math.cos(ang) * rr;
+                const y = game.player.y + Math.sin(ang) * rr;
+                // 注意：createAoE 默认会对敌人造成 dmg，因此这里把 dmg=0，通过 onTickEnemy 精确控制，避免重复伤害。
+                game.createAoE(x, y, p.radius, p.duration, 0, 'rgba(0, 230, 118, 0.18)', 'both', {
+                    tickInterval: p.tickInterval,
+                    playerDamage: false,
+                    follow: (mech >= 3 ? 'player' : null),
+                    onTickPlayer: (g, plr) => {
+                        plr.heal(p.heal);
+                        if (mech >= 2) {
+                            plr.statusBlindTimer = Math.max(0, (plr.statusBlindTimer || 0) - 0.35);
+                            plr.statusSlowTimer = Math.max(0, (plr.statusSlowTimer || 0) - 0.35);
+                        }
+                        if (mech >= 1) {
+                            plr.tempDR = Math.max(plr.tempDR || 0, 4 + lvl * 0.5);
+                            plr.tempDRTimer = Math.max(plr.tempDRTimer || 0, 1.1);
+                        }
+                    },
+                    onTickEnemy: (g, e) => { if (p.dmg > 0) e.takeDamage(p.dmg); }
+                });
+            }
         }
     },
     'meteor_strike': {
@@ -873,7 +1127,7 @@ const SKILLS = {
             const dmg = (70 + lvl * 35) * ((caster && caster.skillDmgMul) ? caster.skillDmgMul : 1);
             const burnDps = (lvl >= 4 ? (10 + lvl * 6) * ((caster && caster.skillDmgMul) ? caster.skillDmgMul : 1) : 0);
             const burnDur = (lvl >= 4 ? 2.4 : 0);
-            return { cooldown, radius, delay, dmg, burnDps, burnDur };
+            return metaApplyToParams(game, 'meteor_strike', { cooldown, radius, delay, dmg, burnDps, burnDur });
         },
         desc: (lvl) => {
             const rawCd = Math.max(3.8, 9.6 - 0.7 * lvl);
@@ -886,19 +1140,30 @@ const SKILLS = {
         onActivate: (game, lvl, params) => {
             if (game && game.sfx) game.sfx.play('skill');
             const p = params || SKILLS['meteor_strike'].getParams(game, lvl, game.player);
+            const mech = (p._meta && p._meta.mech) ? p._meta.mech : 0;
+            const meteors = Math.max(1, Math.floor(p.meteors || 1));
             const target = game.findNearestEnemy(game.player.x, game.player.y, 900);
-            const x = target ? target.x : (game.player.x + (Math.random() - 0.5) * 260);
-            const y = target ? target.y : (game.player.y + (Math.random() - 0.5) * 260);
+            const cx = target ? target.x : (game.player.x + (Math.random() - 0.5) * 260);
+            const cy = target ? target.y : (game.player.y + (Math.random() - 0.5) * 260);
             if (!game.delayedExplosions) game.delayedExplosions = [];
-            game.delayedExplosions.push({
-                t: 0,
-                delay: p.delay,
-                x, y,
-                r: p.radius,
-                dmg: p.dmg,
-                burnDps: p.burnDps,
-                burnDur: p.burnDur
-            });
+            for (let i = 0; i < meteors; i++) {
+                const ang = Math.random() * Math.PI * 2;
+                const rr = (i === 0 ? 0 : (80 + Math.random() * 90));
+                const x = cx + Math.cos(ang) * rr;
+                const y = cy + Math.sin(ang) * rr;
+                game.delayedExplosions.push({
+                    t: 0,
+                    delay: p.delay + (i * 0.10),
+                    x, y,
+                    r: p.radius * (i === 0 ? 1 : 0.82),
+                    dmg: p.dmg * (i === 0 ? 1 : 0.78),
+                    burnDps: p.burnDps,
+                    burnDur: p.burnDur,
+                    slowDur: (mech >= 2 ? 1.1 : 0),
+                    slow: (mech >= 2 ? 0.22 : 0),
+                    aftershock: (mech >= 1)
+                });
+            }
         }
     }
 };
@@ -921,12 +1186,16 @@ class SaveManager {
             heirlooms: [],
             // Meta progression: Skill shards + unlocked skills
             skillShards: 0,
-            unlockedSkills: {} // { [skillId]: true }
+            unlockedSkills: {}, // { [skillId]: true }
+            // Meta progression: Skill upgrades (out-of-run)
+            skillUpgrades: {},   // { [skillId]: { dmg, range, cd, qty, mech } }
+            skillUpgradesSpent: 0
         };
         // 可由 Game 注入：用于购买成功/失败提示音等（避免在这里硬依赖 Game）
         this.onAddHeirloom = null; // ()=>void
         this.load();
         this._ensureSkillUnlockDefaults();
+        this._ensureSkillUpgradeDefaults();
     }
     load() {
         const s = localStorage.getItem('teemo_survivor_v3');
@@ -966,6 +1235,25 @@ class SaveManager {
             'wisdom', 'meditation', 'reach'
         ].forEach(id => { this.data.unlockedSkills[id] = true; });
         // 确保写回一次（仅在老存档首次升级到新版本时）
+        this.save();
+    }
+
+    _ensureSkillUpgradeDefaults() {
+        if (!this.data.skillUpgrades || typeof this.data.skillUpgrades !== 'object') this.data.skillUpgrades = {};
+        if (typeof this.data.skillUpgradesSpent !== 'number') this.data.skillUpgradesSpent = 0;
+
+        // 容错：清理/夹紧非法数据（避免旧存档/手动改存档导致 NaN/负数/超上限）
+        Object.keys(this.data.skillUpgrades).forEach(sid => {
+            const st = this.data.skillUpgrades[sid];
+            if (!st || typeof st !== 'object') { delete this.data.skillUpgrades[sid]; return; }
+            META_UPGRADE_KEYS.forEach(k => {
+                const max = (META_UPGRADE_CONF[k] && META_UPGRADE_CONF[k].max) ? META_UPGRADE_CONF[k].max : 0;
+                const v = Math.max(0, Math.min(max, Math.floor(st[k] || 0)));
+                st[k] = v;
+            });
+        });
+
+        this.data.skillUpgradesSpent = Math.max(0, Math.floor(this.data.skillUpgradesSpent || 0));
         this.save();
     }
 
@@ -1059,6 +1347,119 @@ class SaveManager {
                 sList.appendChild(div);
             });
         }
+
+        // Skills upgrade list (meta)
+        const uList = document.getElementById('skill-upgrade-list');
+        if (uList && typeof SKILLS === 'object') {
+            const safe = (s) => String(s || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+            const ids = Object.keys(SKILLS)
+                .map(id => ({ id, def: SKILLS[id] }))
+                .filter(s => s.def && s.def.type === 'active')
+                .sort((a, b) => ((a.def.unlockCost || 0) - (b.def.unlockCost || 0)));
+
+            uList.innerHTML = '';
+            ids.forEach(s => {
+                const def = s.def;
+                const unlocked = this.isSkillUnlocked(s.id) || (Math.floor(def.unlockCost || 0) === 0);
+                const tag = def.type === 'active' ? '主动' : '被动';
+                const st = metaGetStateFromSave(this, s.id);
+                const special = META_SKILL_SPECIAL[s.id] || {};
+
+                const card = document.createElement('div');
+                card.className = `skill-upgrade-card ${unlocked ? '' : 'locked'}`;
+
+                const rows = META_UPGRADE_KEYS.map(k => {
+                    const conf = META_UPGRADE_CONF[k];
+                    const now = st[k] || 0;
+                    const max = conf.max;
+                    const isMax = now >= max;
+                    const cost = isMax ? 0 : metaGetUpgradeCost(s.id, k, now);
+
+                    let eff = '';
+                    if (k === 'dmg') eff = `技能伤害 +${Math.round((now + 1) * conf.perLv * 100)}%`;
+                    else if (k === 'range') eff = `技能范围 +${Math.round((now + 1) * conf.perLv * 100)}%`;
+                    else if (k === 'cd') eff = `技能冷却 ×${Math.pow(1 - conf.perLv, now + 1).toFixed(2)}`;
+                    else if (k === 'qty') eff = `+${now + 1} ${safe(special.qtyName || '数量')}`;
+                    else if (k === 'mech') eff = safe((special.mech && special.mech[now]) ? special.mech[now] : `解锁机制 ${now + 1}`);
+
+                    return {
+                        key: k,
+                        kName: conf.name,
+                        lvlText: `Lv.${now}/${max}`,
+                        effText: isMax ? '已满级' : eff,
+                        cost,
+                        disabled: (!unlocked) || isMax
+                    };
+                });
+
+                card.innerHTML = `
+                    <div class="skill-upgrade-top">
+                        <div class="skill-upgrade-name">${safe(def.name)} <span class="skill-upgrade-tag">(${tag})</span></div>
+                        <div class="skill-upgrade-note">${unlocked ? '点击升级' : '未解锁'}</div>
+                    </div>
+                    <div class="skill-upgrade-rows">
+                        ${rows.map(r => `
+                            <div class="skill-upgrade-row" data-sid="${safe(s.id)}" data-key="${safe(r.key)}">
+                                <div class="su-k">${safe(r.kName)}</div>
+                                <div class="su-l">${safe(r.lvlText)}</div>
+                                <div class="su-e">${safe(r.effText)}</div>
+                                <button class="small-btn" ${r.disabled ? 'disabled' : ''}>${r.disabled ? '—' : `升级(碎片${r.cost})`}</button>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+
+                card.querySelectorAll('.skill-upgrade-row').forEach(row => {
+                    const btn = row.querySelector('button');
+                    if (!btn || btn.disabled) return;
+                    btn.onclick = () => {
+                        const sid = row.getAttribute('data-sid');
+                        const key = row.getAttribute('data-key');
+                        const ok = this.upgradeSkillMeta(sid, key);
+                        if (!ok) {
+                            card.style.borderColor = 'rgba(255,82,82,0.6)';
+                            setTimeout(() => { card.style.borderColor = ''; }, 280);
+                        }
+                    };
+                });
+
+                uList.appendChild(card);
+            });
+        }
+    }
+
+    upgradeSkillMeta(skillId, key) {
+        if (!skillId || !META_UPGRADE_CONF[key]) return false;
+        const def = (SKILLS && SKILLS[skillId]) ? SKILLS[skillId] : null;
+        if (!def) return false;
+        const free = Math.floor(def.unlockCost || 0) === 0;
+        if (!free && !this.isSkillUnlocked(skillId)) return false;
+
+        if (!this.data.skillUpgrades || typeof this.data.skillUpgrades !== 'object') this.data.skillUpgrades = {};
+        if (!this.data.skillUpgrades[skillId] || typeof this.data.skillUpgrades[skillId] !== 'object') this.data.skillUpgrades[skillId] = {};
+
+        const conf = META_UPGRADE_CONF[key];
+        const now = Math.max(0, Math.floor(this.data.skillUpgrades[skillId][key] || 0));
+        if (now >= conf.max) return false;
+        const cost = metaGetUpgradeCost(skillId, key, now);
+        if ((this.data.skillShards || 0) < cost) return false;
+
+        this.data.skillShards -= cost;
+        this.data.skillUpgrades[skillId][key] = now + 1;
+        this.data.skillUpgradesSpent = (this.data.skillUpgradesSpent || 0) + cost;
+        this.save();
+        this.updateUI();
+        return true;
+    }
+
+    resetSkillMetaUpgrades() {
+        const spent = Math.max(0, Math.floor(this.data.skillUpgradesSpent || 0));
+        this.data.skillUpgrades = {};
+        this.data.skillUpgradesSpent = 0;
+        this.data.skillShards = (this.data.skillShards || 0) + spent;
+        this.save();
+        this.updateUI();
+        return spent;
     }
 }
 
@@ -1079,6 +1480,7 @@ class Projectile {
         this.type = options.type || 'normal';
         this.isEnemy = options.isEnemy || false;
         this.onHitPlayer = options.onHitPlayer;
+        this.onHitEnemy = options.onHitEnemy;
         this.stunDuration = options.stunDuration;
         this.dot = options.dot; // { dps, duration, slow }
         this.markedForDeletion = false;
@@ -1107,6 +1509,7 @@ class Projectile {
                     this.markedForDeletion = true;
                     if (this.type === 'dart') { e.stunned = Math.max(e.stunned || 0, this.stunDuration || 1.0); }
                     if (this.dot && e && typeof e.applyDot === 'function') e.applyDot(this.dot.dps || 0, this.dot.duration || 0, this.dot.slow || 0);
+                    if (this.onHitEnemy) this.onHitEnemy(this.game, this, e);
                     break;
                 }
             }
@@ -1140,6 +1543,8 @@ class Mushroom {
         this.target = options.target || 'enemies'; // 'enemies' | 'player'
         this.slowOnExplode = options.slowOnExplode || null; // { duration, speedMul }
         this.stunDuration = (options.stunDuration !== undefined ? options.stunDuration : 1.5);
+        this.leavePool = options.leavePool || null; // { radius, duration, dps, slow }
+        this.chainExplode = !!options.chainExplode;
     }
 
     update(dt) {
@@ -1179,6 +1584,32 @@ class Mushroom {
                 const dist = Math.sqrt((e.x - this.x) ** 2 + (e.y - this.y) ** 2);
                 if (dist < this.aoeRadius) e.stunned = Math.max(e.stunned || 0, this.stunDuration); // Stun/Slow
             });
+
+            if (this.leavePool) {
+                const pool = this.leavePool;
+                const pr = Math.max(40, pool.radius || (this.aoeRadius * 0.7));
+                const pd = Math.max(0.3, pool.duration || 2.0);
+                const dps = Math.max(0, pool.dps || 0);
+                const slow = Math.max(0, pool.slow || 0);
+                this.game.createAoE(this.x, this.y, pr, pd, 0, 'rgba(156, 39, 176, 0.16)', 'enemies', {
+                    tickInterval: 0.35,
+                    onTickEnemy: (g, e) => {
+                        if (typeof e.applyDot === 'function') e.applyDot(0, 0.9, slow);
+                        if (dps > 0) e.takeDamage(dps * 0.35);
+                    }
+                });
+            }
+
+            if (this.chainExplode) {
+                // 引爆附近蘑菇（弱化：小范围+只触发一次）
+                const r = Math.max(60, this.aoeRadius * 0.75);
+                this.game.mushrooms.forEach(m => {
+                    if (m && !m.markedForDeletion && m !== this) {
+                        const d = Math.hypot(m.x - this.x, m.y - this.y);
+                        if (d < r) m.explode();
+                    }
+                });
+            }
         }
     }
 
@@ -1498,10 +1929,11 @@ class Enemy {
     applyDot(dps, duration, slow) {
         const dur = Math.max(0, duration || 0);
         const dd = Math.max(0, dps || 0);
-        if (dur <= 0 || dd <= 0) return;
+        const sl = Math.max(0, slow || 0);
+        if (dur <= 0 || (dd <= 0 && sl <= 0)) return;
         this.dotTimer = Math.max(this.dotTimer || 0, dur);
         this.dotDps = Math.max(this.dotDps || 0, dd);
-        this.dotSlow = Math.max(this.dotSlow || 0, Math.max(0, slow || 0));
+        this.dotSlow = Math.max(this.dotSlow || 0, sl);
     }
 
     updateBossBehavior(dt, dist, dx, dy) {
@@ -1839,6 +2271,9 @@ class Player {
         this.statusSlowTimer = 0;
         this.statusSlowMul = 1;
         this.statusBlindTimer = 0;
+        // Temporary DR (from meta mechanics etc.)
+        this.tempDR = 0;
+        this.tempDRTimer = 0;
         // Kill-haste (from skills like adrenaline)
         this.killHasteTimer = 0;
         this.killHasteStacks = 0;
@@ -1925,6 +2360,10 @@ class Player {
                 this.killHasteTimer = 0;
                 this.killHasteStacks = 0;
             }
+        }
+        if (this.tempDRTimer > 0) {
+            this.tempDRTimer -= dt;
+            if (this.tempDRTimer <= 0) { this.tempDRTimer = 0; this.tempDR = 0; }
         }
 
         const moveMul = (this.statusSlowTimer > 0 ? this.statusSlowMul : 1) * (this.statusBlindTimer > 0 ? 0.85 : 1);
@@ -2042,7 +2481,8 @@ class Player {
     }
 
     takeDamage(amount) {
-        const dmg = Math.max(1, amount - this.damageReduction);
+        const dr = this.damageReduction + (this.tempDRTimer > 0 ? (this.tempDR || 0) : 0);
+        const dmg = Math.max(1, amount - dr);
         this.hp -= dmg;
         this.game.triggerDamageEffect();
         if (this.hp <= 0) this.game.gameOver();
@@ -2128,6 +2568,19 @@ class Game {
         document.getElementById('shop-btn').onclick = () => { this.sfx.play('open'); this.openShop(); };
         document.getElementById('shop-back-btn').onclick = () => { this.sfx.play('close'); this.closeShop(); };
         document.getElementById('start-bonus-confirm-btn').onclick = () => { this.sfx.play('start'); this.startGame(); };
+
+        const resetBtn = document.getElementById('skill-upgrade-reset-btn');
+        if (resetBtn) {
+            resetBtn.onclick = () => {
+                this.sfx.play('click');
+                const spent = Math.max(0, Math.floor(this.saveManager.data.skillUpgradesSpent || 0));
+                if (spent <= 0) return;
+                const ok = window.confirm(`确认重置所有局外技能升级？将返还碎片 ${spent}。`);
+                if (!ok) return;
+                this.saveManager.resetSkillMetaUpgrades();
+                this.sfx.play('purchase');
+            };
+        }
         
         document.getElementById('return-menu-btn').onclick = () => { this.sfx.play('close'); this.returnToMenu(); };
         document.getElementById('discard-btn').onclick = () => { this.sfx.play('click'); this.discardNewItem(); };
@@ -2850,11 +3303,32 @@ class Game {
                         if (m.burnDps > 0 && m.burnDur > 0 && typeof e.applyDot === 'function') {
                             e.applyDot(m.burnDps, m.burnDur, 0);
                         }
+                        if (m.slowDur > 0 && m.slow > 0 && typeof e.applyDot === 'function') {
+                            e.applyDot(0, m.slowDur, m.slow);
+                        }
                     }
                 });
                 // Impact flash line (small)
                 this.addSkillFxLine(m.x - 20, m.y - 20, m.x + 20, m.y + 20, 'rgba(255,152,0,0.85)');
                 this.addSkillFxLine(m.x - 20, m.y + 20, m.x + 20, m.y - 20, 'rgba(255,152,0,0.85)');
+
+                if (m.aftershock) {
+                    // 余震：短延迟再爆一次（较小）
+                    if (!this.delayedExplosions) this.delayedExplosions = [];
+                    this.delayedExplosions.push({
+                        t: 0,
+                        delay: 0.22,
+                        x: m.x,
+                        y: m.y,
+                        r: m.r * 0.75,
+                        dmg: m.dmg * 0.55,
+                        burnDps: 0,
+                        burnDur: 0,
+                        slowDur: 0,
+                        slow: 0,
+                        aftershock: false
+                    });
+                }
             });
         }
 
