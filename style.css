@@ -597,6 +597,7 @@ body {
     align-items: center;
     justify-content: space-between;
     gap: 10px;
+    flex-wrap: nowrap;
     border-bottom: 1px solid rgba(255,255,255,0.10);
     background: rgba(0,0,0,0.22);
 }
@@ -610,6 +611,11 @@ body {
     cursor: pointer;
     font-weight: 1000;
     white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    flex: 0 0 auto;
 }
 .panel-back:hover { background: rgba(255,255,255,0.10); }
 
@@ -635,8 +641,19 @@ body {
     color: rgba(255,255,255,0.92);
     cursor: pointer;
     font-weight: 1000;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    line-height: 1;
+    flex: 0 0 auto;
 }
 .panel-close:hover { background: rgba(255,255,255,0.10); }
+
+.panel-header-right {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
 
 .panel-views {
     flex: 1;
@@ -699,8 +716,8 @@ body {
 .panel-tab.active { background: rgba(255,215,0,0.12); border-color: rgba(255,215,0,0.40); color: #fff; }
 .panel-tab .badge { margin-left: 6px; opacity: 0.75; font-weight: 1000; }
 .panel-tab.insight.active { border-color: rgba(3, 169, 244, 0.55); background: rgba(3, 169, 244, 0.14); }
-.panel-tab.stone.active { border-color: rgba(144, 164, 174, 0.55); background: rgba(144, 164, 174, 0.14); }
-.panel-tab.swift.active { border-color: rgba(255, 215, 64, 0.55); background: rgba(255, 215, 64, 0.12); }
+.panel-tab.stone.active { border-color: rgba(225, 182, 90, 0.60); background: rgba(225, 182, 90, 0.14); }
+.panel-tab.swift.active { border-color: rgba(255, 87, 34, 0.62); background: rgba(255, 87, 34, 0.12); }
 
 /* Make "启迪" feel more like a rune school (subtle, not flashy) */
 .panel-tab.insight {
@@ -724,13 +741,13 @@ body {
 }
 .panel-tab.stone.active {
     background:
-        radial-gradient(circle at 35% 30%, rgba(144, 164, 174, 0.18) 0%, rgba(0,0,0,0.0) 60%),
-        rgba(144, 164, 174, 0.10);
+        radial-gradient(circle at 35% 30%, rgba(225, 182, 90, 0.20) 0%, rgba(0,0,0,0.0) 60%),
+        rgba(225, 182, 90, 0.10);
 }
 .panel-tab.swift.active {
     background:
-        radial-gradient(circle at 30% 25%, rgba(255, 215, 64, 0.18) 0%, rgba(0,0,0,0.0) 60%),
-        rgba(255, 215, 64, 0.10);
+        radial-gradient(circle at 30% 25%, rgba(255, 87, 34, 0.22) 0%, rgba(0,0,0,0.0) 60%),
+        rgba(255, 87, 34, 0.10);
 }
 
 .panel-confirm {
@@ -825,8 +842,8 @@ body {
 }
 .panel-skill-card:hover { transform: translateY(-2px); border-color: rgba(255,215,0,0.18); background: rgba(255,255,255,0.06); }
 .panel-skill-card.insight:hover { border-color: rgba(3, 169, 244, 0.28); }
-.panel-skill-card.swift:hover { border-color: rgba(255, 215, 64, 0.28); }
-.panel-skill-card.stone:hover { border-color: rgba(144, 164, 174, 0.30); }
+.panel-skill-card.swift:hover { border-color: rgba(255, 87, 34, 0.32); }
+.panel-skill-card.stone:hover { border-color: rgba(225, 182, 90, 0.34); }
 .panel-skill-card.locked { opacity: 0.78; }
 .panel-skill-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .panel-skill-name { font-weight: 1000; font-size: 14px; }
@@ -848,14 +865,14 @@ body {
     color: rgba(186, 234, 255, 0.95);
 }
 .panel-tag.swift {
-    border-color: rgba(255, 215, 64, 0.35);
-    background: rgba(255, 215, 64, 0.10);
-    color: rgba(255, 244, 200, 0.95);
+    border-color: rgba(255, 87, 34, 0.38);
+    background: rgba(255, 87, 34, 0.10);
+    color: rgba(255, 220, 205, 0.96);
 }
 .panel-tag.stone {
-    border-color: rgba(144, 164, 174, 0.38);
-    background: rgba(144, 164, 174, 0.10);
-    color: rgba(230, 240, 244, 0.92);
+    border-color: rgba(225, 182, 90, 0.42);
+    background: rgba(225, 182, 90, 0.10);
+    color: rgba(255, 243, 210, 0.95);
 }
 
 .panel-skill-detail {
@@ -872,8 +889,8 @@ body {
     position: relative;
 }
 .panel-skill-hero.insight { border-color: rgba(3, 169, 244, 0.20); }
-.panel-skill-hero.swift { border-color: rgba(255, 215, 64, 0.22); }
-.panel-skill-hero.stone { border-color: rgba(144, 164, 174, 0.22); }
+.panel-skill-hero.swift { border-color: rgba(255, 87, 34, 0.24); }
+.panel-skill-hero.stone { border-color: rgba(225, 182, 90, 0.26); }
 .panel-skill-corner {
     position: absolute;
     top: 12px;
@@ -890,7 +907,7 @@ body {
     font-size: 12px;
 }
 .panel-skill-corner span:first-child { opacity: 0.9; }
-.panel-skill-hero-title { font-weight: 1000; font-size: 18px; color: rgba(255,255,255,0.92); }
+.panel-skill-hero-title { font-weight: 1000; font-size: 18px; color: rgba(255,255,255,0.92); padding-right: 112px; }
 .panel-skill-hero-sub { margin-top: 6px; font-weight: 900; font-size: 12px; color: rgba(255,255,255,0.72); }
 .panel-skill-block {
     border-radius: 16px;
@@ -1111,6 +1128,20 @@ body {
 .panel-view[data-view="stageSelect"] #stage-select-screen .subtitle {
     display: none;
 }
+.panel-view[data-view="stageSelect"] #stage-select-screen .currency-display {
+    width: min(720px, 88vw);
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+    margin: 6px 0 10px 0;
+    font-size: 12px;
+    font-weight: 1000;
+    color: rgba(255,255,255,0.82);
+}
+.panel-view[data-view="stageSelect"] #stage-select-screen .currency-display span {
+    color: #ffd700;
+}
 .panel-view[data-view="stageSelect"] .stage-carousel {
     width: 100%;
     justify-content: center;
@@ -1120,6 +1151,9 @@ body {
     /* 面板内不需要重复“卡片边框/阴影”，避免和面板外框叠加 */
     border: none;
     box-shadow: none;
+    background: rgba(0,0,0,0.16);
+    border-radius: 16px;
+    padding: 16px 14px 14px 14px;
 }
 
 .stage-carousel {
@@ -1184,19 +1218,20 @@ body {
     color: #ffd700;
     letter-spacing: 1px;
 }
-#stage-boss-preview, #stage-loot-preview {
+#stage-boss-preview, #stage-loot-preview, #stage-reward-preview {
     margin-top: 8px;
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
     justify-content: flex-start;
 }
-.stage-boss-title, .stage-loot-title {
+.stage-boss-title, .stage-loot-title, .stage-reward-title {
     margin-top: 14px;
     font-weight: 900;
     color: #ffd700;
     letter-spacing: 1px;
 }
+.stage-boss-section, .stage-loot-section, .stage-reward-section { width: 100%; }
 .boss-preview-chip {
     padding: 8px 10px;
     border-radius: 999px;
@@ -1209,6 +1244,16 @@ body {
 .boss-preview-chip span {
     color: rgba(255, 215, 64, 0.95);
 }
+.reward-preview-chip {
+    padding: 8px 10px;
+    border-radius: 999px;
+    background: rgba(0,0,0,0.35);
+    border: 1px solid rgba(255,255,255,0.16);
+    font-weight: 900;
+    font-size: 13px;
+    color: rgba(255,255,255,0.92);
+}
+.reward-preview-chip b { color: rgba(255, 215, 64, 0.95); }
 .loot-preview-box {
     width: 100%;
     background: rgba(0,0,0,0.28);

@@ -4763,33 +4763,27 @@ class Game {
 
         // Boss preview (pool)
         const bossPreview = document.getElementById('stage-boss-preview');
+        const bossSection = document.getElementById('stage-boss-section');
         if (bossPreview) {
             bossPreview.innerHTML = '';
             const b = this.getBossForStage(meta.id);
-            const div = document.createElement('div');
-            div.className = 'boss-preview-chip';
-            div.innerHTML = b ? `${b.name} <span>· ${b.hint}</span>` : `本关无 Boss <span>· 推进关</span>`;
-            bossPreview.appendChild(div);
+            if (bossSection) bossSection.style.display = b ? '' : 'none';
+            if (b) {
+                const div = document.createElement('div');
+                div.className = 'boss-preview-chip';
+                div.innerHTML = `${b.name} <span>· ${b.hint}</span>`;
+                bossPreview.appendChild(div);
+            }
         }
 
-        // Loot preview (dynamic by heirloom progress)
+        // Boss loot preview (dynamic by heirloom progress)
         const lootEl = document.getElementById('stage-loot-preview');
+        const lootSection = document.getElementById('stage-loot-section');
         if (lootEl) {
             lootEl.innerHTML = '';
             const hasBoss = !!this.getBossForStage(meta.id);
-            if (!hasBoss) {
-                const defs = this.getDifficultyDefs();
-                const diff = defs[String(did || 'easy')] || defs.easy;
-                const mul = (diff && diff.shardMul !== undefined) ? diff.shardMul : 1;
-                const shards = Math.floor((2 + Math.floor(meta.id * 0.9)) * mul);
-                const box = document.createElement('div');
-                box.className = 'loot-preview-box';
-                box.innerHTML = `
-                    <div class="loot-line"><b>本关无 Boss</b>：无装备掉落</div>
-                    <div class="loot-line"><b>通关奖励</b>：技能碎片 +${shards}</div>
-                `;
-                lootEl.appendChild(box);
-            } else {
+            if (lootSection) lootSection.style.display = hasBoss ? '' : 'none';
+            if (hasBoss) {
                 const profile = this.getStageLootProfile(meta.id, did);
                 const possibleHeirlooms = ITEMS.filter(i => i.isHeirloom && !(this.saveManager && this.saveManager.data && this.saveManager.data.heirlooms || []).includes(i.id));
                 const standards = ITEMS.filter(i => !i.isHeirloom);
@@ -4832,6 +4826,22 @@ class Game {
                 box.appendChild(sample);
                 lootEl.appendChild(box);
             }
+        }
+
+        // Clear reward preview (always shown, separated from boss loot)
+        const rewardEl = document.getElementById('stage-reward-preview');
+        const rewardSection = document.getElementById('stage-reward-section');
+        if (rewardSection) rewardSection.style.display = '';
+        if (rewardEl) {
+            rewardEl.innerHTML = '';
+            const defs = this.getDifficultyDefs();
+            const diff = defs[String(did || 'easy')] || defs.easy;
+            const mul = (diff && diff.shardMul !== undefined) ? diff.shardMul : 1;
+            const shards = Math.floor((2 + Math.floor(meta.id * 0.9)) * mul);
+            const div = document.createElement('div');
+            div.className = 'reward-preview-chip';
+            div.innerHTML = `<b>技能碎片</b> +${shards}`;
+            rewardEl.appendChild(div);
         }
 
         const row = document.getElementById('difficulty-row');
