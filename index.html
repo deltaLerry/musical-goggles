@@ -52,6 +52,18 @@
         <div id="skill-upgrade-section">
             <h3>技能升级（局外成长）</h3>
             <div class="skill-unlock-hint">所有技能统一局外等级 0~20。Lv.1 的效果就是“解锁该技能”，解锁后才会进入局内升级池；Lv.2~20 会逐步强化伤害/范围/CD/数量/机制。</div>
+            <div id="skill-upgrade-controls" class="skill-upgrade-controls">
+                <div id="skill-upgrade-tabs" class="skill-upgrade-tabs"></div>
+                <div class="skill-upgrade-tools">
+                    <input id="skill-upgrade-search" class="skill-upgrade-search" type="text" placeholder="搜索技能名 / 关键词…" />
+                    <label class="skill-upgrade-toggle">
+                        <input id="skill-upgrade-show-locked" type="checkbox" checked />
+                        显示未解锁
+                    </label>
+                    <button id="skill-upgrade-expand-all" class="small-btn">全部展开</button>
+                    <button id="skill-upgrade-collapse-all" class="small-btn">全部折叠</button>
+                </div>
+            </div>
             <div class="skill-upgrade-actions">
                 <button id="skill-upgrade-reset-btn" class="small-btn danger">重置局外升级（返还碎片）</button>
             </div>

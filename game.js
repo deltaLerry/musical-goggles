@@ -1475,50 +1475,287 @@ class SaveManager {
             hContainer.classList.add('hidden');
         }
 
-        // Skills upgrade list (meta) - new unified system (unlock + upgrade)
+        // Skills upgrade list (meta) - categorized + searchable + collapsible
         const uList = document.getElementById('skill-upgrade-list');
         if (uList && typeof SKILLS === 'object') {
             const safe = (s) => String(s || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
-            const ids = Object.keys(SKILLS)
+
+            // UI state (kept on SaveManager instance)
+            if (!this._skillUI || typeof this._skillUI !== 'object') {
+                this._skillUI = {
+                    tab: 'all',          // all | sorcery | swift | stone | insight | active | passive
+                    showLocked: true,
+                    query: '',
+                    collapsed: Object.create(null)
+                };
+            }
+            const stUI = this._skillUI;
+
+            const getArchetype = (id, def) => {
+                // 明确映射优先（可读性强）
+                const map = {
+                    // Active => 巫术
+                    poison_nova: 'sorcery',
+                    blinding_dart: 'sorcery',
+                    mushroom_trap: 'sorcery',
+                    chain_lightning: 'sorcery',
+                    frost_nova: 'sorcery',
+                    blade_storm: 'sorcery',
+                    healing_totem: 'sorcery',
+                    meteor_strike: 'sorcery',
+
+                    // Offensive / tempo
+                    sharpness: 'swift',
+                    quick_draw: 'swift',
+                    haste: 'swift',
+                    multishot: 'swift',
+                    split_shot: 'swift',
+                    toxic_blades: 'swift',
+                    adrenaline: 'swift',
+
+                    // Defense
+                    vitality: 'stone',
+                    health_boost: 'stone',
+                    regen: 'stone',
+                    iron_skin: 'stone',
+
+                    // Utility / economy / control
+                    swiftness: 'insight',
+                    wisdom: 'insight',
+                    meditation: 'insight',
+                    reach: 'insight',
+                    arcane_amp: 'insight',
+                };
+                if (map[id]) return map[id];
+
+                // 兜底：按 type + 描述关键词粗分
+                if (def && def.type === 'active') return 'sorcery';
+                const text = ((def && def.name) ? def.name : '') + ' ' + ((def && def.unlockDesc) ? def.unlockDesc : '');
+                if (/经验|拾取|冷却|技能|奥术|掌控|冥想|智慧/.test(text)) return 'insight';
+                if (/生命|减伤|再生|铁皮|强壮|体魄/.test(text)) return 'stone';
+                return 'swift';
+            };
+
+            const archetypeLabel = (a) => ({
+                all: '全部',
+                sorcery: '巫术',
+                swift: '迅猛',
+                stone: '磐石',
+                insight: '启迪',
+                active: '主动',
+                passive: '被动'
+            }[a] || '全部');
+
+            const allSkills = Object.keys(SKILLS)
                 .map(id => ({ id, def: SKILLS[id] }))
                 .filter(s => s.def)
-                .sort((a, b) => (a.def.type === b.def.type ? 0 : (a.def.type === 'active' ? -1 : 1)) || ((a.def.unlockCost || 0) - (b.def.unlockCost || 0)));
+                .map(s => {
+                    const metaLv = metaGetSkillLevel(this, s.id);
+                    const unlocked = metaLv >= 1;
+                    const type = (s.def.type === 'active') ? 'active' : 'passive';
+                    const arch = getArchetype(s.id, s.def);
+                    return { ...s, metaLv, unlocked, type, arch };
+                })
+                .sort((a, b) => (a.type === b.type ? 0 : (a.type === 'active' ? -1 : 1)) || (a.arch === b.arch ? 0 : (a.arch < b.arch ? -1 : 1)) || ((a.def.unlockCost || 0) - (b.def.unlockCost || 0)) || (a.id < b.id ? -1 : 1));
 
-            uList.innerHTML = '';
-            ids.forEach(s => {
+            // Controls elements
+            const tabsEl = document.getElementById('skill-upgrade-tabs');
+            const searchEl = document.getElementById('skill-upgrade-search');
+            const showLockedEl = document.getElementById('skill-upgrade-show-locked');
+            const expandAllEl = document.getElementById('skill-upgrade-expand-all');
+            const collapseAllEl = document.getElementById('skill-upgrade-collapse-all');
+
+            // Render tabs (with counts)
+            if (tabsEl) {
+                const tabs = ['all', 'sorcery', 'swift', 'stone', 'insight', 'active', 'passive'];
+                const counts = Object.create(null);
+                tabs.forEach(t => counts[t] = 0);
+                allSkills.forEach(s => {
+                    counts.all++;
+                    counts[s.arch] = (counts[s.arch] || 0) + 1;
+                    counts[s.type] = (counts[s.type] || 0) + 1;
+                });
+                tabsEl.innerHTML = tabs.map(t => {
+                    const active = (stUI.tab === t) ? 'active' : '';
+                    const c = counts[t] || 0;
+                    return `<div class="skill-tab ${active}" data-tab="${safe(t)}">${safe(archetypeLabel(t))}<span class="count">${c}</span></div>`;
+                }).join('');
+                tabsEl.querySelectorAll('.skill-tab').forEach(el => {
+                    el.onclick = () => {
+                        const t = el.getAttribute('data-tab') || 'all';
+                        stUI.tab = t;
+                        this.updateUI();
+                    };
+                });
+            }
+
+            // Sync + bind tools
+            if (searchEl) {
+                if (searchEl.value !== stUI.query) searchEl.value = stUI.query;
+                if (!searchEl._bound) {
+                    searchEl._bound = true;
+                    let timer = null;
+                    searchEl.addEventListener('input', () => {
+                        clearTimeout(timer);
+                        timer = setTimeout(() => {
+                            stUI.query = String(searchEl.value || '').trim();
+                            this.updateUI();
+                        }, 90);
+                    });
+                }
+            }
+            if (showLockedEl) {
+                showLockedEl.checked = !!stUI.showLocked;
+                if (!showLockedEl._bound) {
+                    showLockedEl._bound = true;
+                    showLockedEl.addEventListener('change', () => {
+                        stUI.showLocked = !!showLockedEl.checked;
+                        this.updateUI();
+                    });
+                }
+            }
+            const setAllCollapsed = (collapsed) => {
+                Object.keys(stUI.collapsed).forEach(k => { stUI.collapsed[k] = !!collapsed; });
+            };
+            if (expandAllEl && !expandAllEl._bound) {
+                expandAllEl._bound = true;
+                expandAllEl.onclick = () => { setAllCollapsed(false); this.updateUI(); };
+            }
+            if (collapseAllEl && !collapseAllEl._bound) {
+                collapseAllEl._bound = true;
+                collapseAllEl.onclick = () => { setAllCollapsed(true); this.updateUI(); };
+            }
+
+            // Filter list
+            const q = (stUI.query || '').toLowerCase();
+            const filtered = allSkills.filter(s => {
+                if (!stUI.showLocked && !s.unlocked) return false;
+                if (stUI.tab === 'active' && s.type !== 'active') return false;
+                if (stUI.tab === 'passive' && s.type !== 'passive') return false;
+                if (stUI.tab === 'sorcery' || stUI.tab === 'swift' || stUI.tab === 'stone' || stUI.tab === 'insight') {
+                    if (s.arch !== stUI.tab) return false;
+                }
+                if (q) {
+                    const text = `${s.def.name || ''} ${s.id} ${s.def.unlockDesc || ''}`.toLowerCase();
+                    if (!text.includes(q)) return false;
+                }
+                return true;
+            });
+
+            // Group by archetype + type (collapsible)
+            const groupOrder = [
+                ['sorcery', 'active'],
+                ['swift', 'passive'],
+                ['stone', 'passive'],
+                ['insight', 'passive'],
+                ['sorcery', 'passive'],
+                ['swift', 'active'],
+                ['stone', 'active'],
+                ['insight', 'active'],
+            ];
+            const groups = Object.create(null);
+            filtered.forEach(s => {
+                const k = `${s.arch}|${s.type}`;
+                if (!groups[k]) groups[k] = [];
+                groups[k].push(s);
+            });
+
+            const renderCard = (s) => {
                 const def = s.def;
-                const tag = def.type === 'active' ? '主动' : '被动';
-                const card = document.createElement('div');
-                const curLv = metaGetSkillLevel(this, s.id);
-                const unlocked = curLv >= 1;
+                const tag = s.type === 'active' ? '主动' : '被动';
+                const curLv = s.metaLv;
+                const unlocked = s.unlocked;
                 const isMax = curLv >= META_SKILL_MAX_LEVEL;
                 const cost = isMax ? 0 : metaGetLevelUpCost(s.id, curLv);
                 const nextDesc = metaDescribeNextLevel(s.id, curLv);
 
-                card.className = `skill-upgrade-card ${unlocked ? '' : 'locked'}`;
-                card.innerHTML = `
-                    <div class="skill-upgrade-top">
-                        <div class="skill-upgrade-name">${safe(def.name)} <span class="skill-upgrade-tag">(${tag})</span></div>
-                        <div class="skill-upgrade-note">${unlocked ? `Lv.${curLv}/${META_SKILL_MAX_LEVEL}` : `未解锁 (Lv.${curLv}/${META_SKILL_MAX_LEVEL})`}</div>
-                    </div>
-                    <div class="skill-upgrade-desc">${safe(nextDesc)}</div>
-                    <div class="skill-upgrade-actions">
-                        <button class="small-btn" ${isMax ? 'disabled' : ''}>${isMax ? '已满级' : (unlocked ? `升级到Lv.${curLv + 1}(碎片${cost})` : `解锁(碎片${cost})`)}</button>
+                return `
+                    <div class="skill-upgrade-card ${unlocked ? '' : 'locked'}" data-sid="${safe(s.id)}">
+                        <div class="skill-upgrade-top">
+                            <div class="skill-upgrade-name">${safe(def.name)} <span class="skill-upgrade-tag">(${safe(tag)})</span></div>
+                            <div class="skill-upgrade-note">${unlocked ? `Lv.${curLv}/${META_SKILL_MAX_LEVEL}` : `未解锁 (Lv.${curLv}/${META_SKILL_MAX_LEVEL})`}</div>
+                        </div>
+                        <div class="skill-upgrade-desc">${safe(nextDesc)}</div>
+                        <div class="skill-upgrade-actions">
+                            <button class="small-btn" data-up="1" ${isMax ? 'disabled' : ''}>${isMax ? '已满级' : (unlocked ? `升级到Lv.${curLv + 1}(碎片${cost})` : `解锁(碎片${cost})`)}</button>
+                        </div>
                     </div>
                 `;
+            };
 
-                const btn = card.querySelector('button');
-                if (btn && !btn.disabled) {
-                    btn.onclick = () => {
-                        const ok = this.upgradeSkillLevel(s.id);
-                        if (!ok) {
-                            card.style.borderColor = 'rgba(255,82,82,0.6)';
-                            setTimeout(() => { card.style.borderColor = ''; }, 280);
-                        }
+            // Render groups
+            const htmlParts = [];
+            const seenKeys = new Set();
+            groupOrder.forEach(([arch, type]) => {
+                const key = `${arch}|${type}`;
+                const arr = groups[key];
+                if (!arr || arr.length === 0) return;
+                seenKeys.add(key);
+                const title = `${archetypeLabel(arch)} · ${type === 'active' ? '主动' : '被动'}`;
+                const gk = `g:${key}`;
+                if (stUI.collapsed[gk] === undefined) stUI.collapsed[gk] = (stUI.tab !== 'all'); // 默认：非“全部”时先折叠
+                const collapsed = !!stUI.collapsed[gk];
+                htmlParts.push(`
+                    <div class="skill-group ${collapsed ? 'collapsed' : ''}" data-group="${safe(gk)}">
+                        <div class="skill-group-header">
+                            <div class="skill-group-title">${safe(title)}</div>
+                            <div class="skill-group-meta">${arr.length} 个</div>
+                        </div>
+                        <div class="skill-group-body">
+                            ${arr.map(renderCard).join('')}
+                        </div>
+                    </div>
+                `);
+            });
+            // Render any leftover groups (edge)
+            Object.keys(groups).forEach(key => {
+                const gk = `g:${key}`;
+                if (seenKeys.has(key)) return;
+                const arr = groups[key];
+                if (!arr || arr.length === 0) return;
+                const [arch, type] = key.split('|');
+                const title = `${archetypeLabel(arch)} · ${type === 'active' ? '主动' : '被动'}`;
+                if (stUI.collapsed[gk] === undefined) stUI.collapsed[gk] = true;
+                const collapsed = !!stUI.collapsed[gk];
+                htmlParts.push(`
+                    <div class="skill-group ${collapsed ? 'collapsed' : ''}" data-group="${safe(gk)}">
+                        <div class="skill-group-header">
+                            <div class="skill-group-title">${safe(title)}</div>
+                            <div class="skill-group-meta">${arr.length} 个</div>
+                        </div>
+                        <div class="skill-group-body">
+                            ${arr.map(renderCard).join('')}
+                        </div>
+                    </div>
+                `);
+            });
+
+            uList.innerHTML = htmlParts.length > 0 ? htmlParts.join('') : `<div class="skill-unlock-hint">没有匹配的技能。换个分类或搜索词试试。</div>`;
+
+            // Bind group collapse toggles
+            uList.querySelectorAll('.skill-group').forEach(g => {
+                const gk = g.getAttribute('data-group');
+                const header = g.querySelector('.skill-group-header');
+                if (header) {
+                    header.onclick = () => {
+                        stUI.collapsed[gk] = !stUI.collapsed[gk];
+                        this.updateUI();
                     };
                 }
+            });
 
-                uList.appendChild(card);
+            // Bind upgrade buttons
+            uList.querySelectorAll('button[data-up="1"]').forEach(btn => {
+                btn.onclick = () => {
+                    const card = btn.closest('.skill-upgrade-card');
+                    const sid = card ? card.getAttribute('data-sid') : null;
+                    if (!sid) return;
+                    const ok = this.upgradeSkillLevel(sid);
+                    if (!ok && card) {
+                        card.style.borderColor = 'rgba(255,82,82,0.6)';
+                        setTimeout(() => { card.style.borderColor = ''; }, 280);
+                    }
+                };
             });
         }
     }

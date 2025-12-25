@@ -260,19 +260,111 @@ body {
     margin: 0 0 8px 0;
     color: #ffd700;
 }
+
+.skill-upgrade-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 10px 0 10px 0;
+}
+.skill-upgrade-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.skill-tab {
+    padding: 7px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.16);
+    background: rgba(255,255,255,0.06);
+    color: rgba(255,255,255,0.9);
+    font-weight: 900;
+    font-size: 12px;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.12s ease, border-color 0.12s ease, transform 0.12s ease;
+}
+.skill-tab:hover { background: rgba(255,255,255,0.10); border-color: rgba(255,215,0,0.22); transform: translateY(-1px); }
+.skill-tab.active { background: rgba(255,215,0,0.12); border-color: rgba(255,215,0,0.40); color: #fff; }
+.skill-tab .count { opacity: 0.75; font-weight: 900; margin-left: 6px; }
+
+.skill-upgrade-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+.skill-upgrade-search {
+    flex: 1 1 220px;
+    min-width: 180px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.16);
+    background: rgba(0,0,0,0.35);
+    color: rgba(255,255,255,0.92);
+    outline: none;
+}
+.skill-upgrade-search:focus { border-color: rgba(255,215,0,0.35); box-shadow: 0 0 0 2px rgba(255,215,0,0.08); }
+.skill-upgrade-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 900;
+    color: rgba(255,255,255,0.8);
+    user-select: none;
+}
+.skill-upgrade-toggle input { transform: translateY(1px); }
 .skill-upgrade-actions {
     display: flex;
     justify-content: flex-end;
     margin: 8px 0 10px 0;
 }
 #skill-upgrade-list {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
     max-height: 52vh;
     overflow: auto;
     padding-right: 6px;
 }
+
+.skill-group {
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(0,0,0,0.28);
+    border-radius: 12px;
+    overflow: hidden;
+}
+.skill-group-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    cursor: pointer;
+    user-select: none;
+    background: rgba(255,255,255,0.05);
+    border-bottom: 1px solid rgba(255,255,255,0.10);
+}
+.skill-group-title {
+    font-weight: 900;
+    color: #ffd700;
+    letter-spacing: 0.5px;
+}
+.skill-group-meta {
+    font-size: 12px;
+    font-weight: 900;
+    color: rgba(255,255,255,0.72);
+}
+.skill-group-body {
+    padding: 10px 10px 12px 10px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 10px;
+}
+.skill-group.collapsed .skill-group-body { display: none; }
+.skill-group.collapsed .skill-group-header { border-bottom-color: transparent; }
 .skill-upgrade-card {
     background: rgba(0,0,0,0.35);
     border: 1px solid rgba(255,255,255,0.14);
