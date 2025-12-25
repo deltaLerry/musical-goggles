@@ -1372,6 +1372,9 @@ class SaveManager {
             unlockedStageMax: 1,
             lastSelectedStage: 1,
             lastSelectedDifficulty: 'normal',
+            // Difficulty clears by stage:
+            // { [stageNumber: string]: { easy?: true, normal?: true, hard?: true, hell?: true } }
+            stageDifficultyClears: {},
             // Legacy (will be migrated): unlockedSkills / skillUpgrades
             unlockedSkills: {}, // { [skillId]: true }
             skillUpgrades: {},  // { [skillId]: { dmg, range, cd, qty, mech } }
@@ -1406,6 +1409,7 @@ class SaveManager {
         if (typeof this.data.unlockedStageMax !== 'number') this.data.unlockedStageMax = 1;
         if (typeof this.data.lastSelectedStage !== 'number') this.data.lastSelectedStage = 1;
         if (typeof this.data.lastSelectedDifficulty !== 'string') this.data.lastSelectedDifficulty = 'normal';
+        if (!this.data.stageDifficultyClears || typeof this.data.stageDifficultyClears !== 'object') this.data.stageDifficultyClears = {};
         if (!this.data.skillLevels || typeof this.data.skillLevels !== 'object') this.data.skillLevels = {};
         if (typeof this.data.skillLevelsSpent !== 'number') this.data.skillLevelsSpent = 0;
 
@@ -1472,7 +1476,59 @@ class SaveManager {
     }
 
     getUnlockedStageMax() {
-        return Math.max(1, Math.floor(this.data.unlockedStageMax || 1));
+        // 防止存档值超过当前版本关卡数量导致 UI 显示“解锁到不存在的关卡”
+        const cap = 30; // 与 getAllStagesMeta() 的关卡数量保持一致（需要扩关卡时一并调整）
+        return Math.max(1, Math.min(cap, Math.floor(this.data.unlockedStageMax || 1)));
+    }
+
+    _getDifficultyOrder() {
+        return ['easy', 'normal', 'hard', 'hell'];
+    }
+
+    _normalizeDifficultyId(id) {
+        const d = String(id || 'easy');
+        const order = this._getDifficultyOrder();
+        return order.includes(d) ? d : 'easy';
+    }
+
+    isStageDifficultyCleared(stageNumber, difficultyId) {
+        const s = Math.max(1, Math.floor(stageNumber || 1));
+        const d = this._normalizeDifficultyId(difficultyId);
+        const map = this.data.stageDifficultyClears || {};
+        return !!(map[String(s)] && map[String(s)][d]);
+    }
+
+    markStageDifficultyCleared(stageNumber, difficultyId) {
+        const s = Math.max(1, Math.floor(stageNumber || 1));
+        const d = this._normalizeDifficultyId(difficultyId);
+        if (!this.data.stageDifficultyClears || typeof this.data.stageDifficultyClears !== 'object') this.data.stageDifficultyClears = {};
+        const k = String(s);
+        if (!this.data.stageDifficultyClears[k] || typeof this.data.stageDifficultyClears[k] !== 'object') this.data.stageDifficultyClears[k] = {};
+        this.data.stageDifficultyClears[k][d] = true;
+        this.save();
+        this.updateUI();
+    }
+
+    isStageDifficultyUnlocked(stageNumber, difficultyId) {
+        // 解锁规则：同一关按顺序完成
+        // 新手(easy) 默认可打；中级(normal) 需要新手已通关；高级(hard) 需要中级已通关；地狱(hell) 需要高级已通关
+        const s = Math.max(1, Math.floor(stageNumber || 1));
+        const d = this._normalizeDifficultyId(difficultyId);
+        const order = this._getDifficultyOrder();
+        const idx = order.indexOf(d);
+        if (idx <= 0) return true;
+        return this.isStageDifficultyCleared(s, order[idx - 1]);
+    }
+
+    getHighestUnlockedDifficultyForStage(stageNumber) {
+        const s = Math.max(1, Math.floor(stageNumber || 1));
+        const order = this._getDifficultyOrder();
+        let best = order[0];
+        for (let i = 1; i < order.length; i++) {
+            if (this.isStageDifficultyUnlocked(s, order[i])) best = order[i];
+            else break;
+        }
+        return best;
     }
 
     unlockStage(stageNumber) {
@@ -2558,6 +2614,199 @@ class Enemy {
                 const mul = 2.2;
                 this.x += (dx / dist) * this.speed * (mul - 1) * dt;
                 this.y += (dy / dist) * this.speed * (mul - 1) * dt;
+            }
+            return;
+        }
+
+        if (bt === 'warden') {
+            // 监军：重击震荡（近身 AoE）+ 召唤盾卫援军（压迫但可读）
+            this.x += (dx / dist) * this.speed * dt;
+            this.y += (dy / dist) * this.speed * dt;
+            if (checkCollision(this, p)) p.takeDamage(this.damage * dt);
+
+            if (tick('slam') >= (hpPct > 0.55 ? 4.9 : 3.9)) {
+                reset('slam');
+                const dmg = 10 + this.level * 0.45;
+                g.createAoE(this.x, this.y, (hpPct > 0.55 ? 190 : 220), 0.45, dmg, 'rgba(144, 164, 174, 0.18)', 'player', { tickInterval: 0.12 });
+            }
+
+            if (tick('call') >= (hpPct > 0.55 ? 7.4 : 6.0)) {
+                reset('call');
+                const n = (hpPct > 0.5 ? 2 : 3);
+                for (let i = 0; i < n; i++) {
+                    const ang = Math.random() * Math.PI * 2;
+                    const pos = clampWorld(this.x + Math.cos(ang) * 180, this.y + Math.sin(ang) * 180);
+                    g.spawnEnemyFromType('shielded', { spawnAt: pos });
+                }
+            }
+            return;
+        }
+
+        if (bt === 'alchemist') {
+            // 炼金：投掷毒瓶（锁定玩家点）+ 扩散毒雾（跟随/封锁走位）
+            const range = 520;
+            if (dist > range * 0.75) {
+                this.x += (dx / dist) * this.speed * dt;
+                this.y += (dy / dist) * this.speed * dt;
+            } else if (dist < range * 0.5) {
+                this.x -= (dx / dist) * this.speed * 0.6 * dt;
+                this.y -= (dy / dist) * this.speed * 0.6 * dt;
+            }
+            if (checkCollision(this, p)) p.takeDamage(this.damage * dt);
+
+            if (tick('flask') >= (hpPct > 0.55 ? 2.7 : 2.1)) {
+                reset('flask');
+                const dmg = 6 + this.level * 0.35;
+                g.createAoE(p.x, p.y, 175, 2.9, dmg, 'rgba(124, 179, 66, 0.22)', 'player', {
+                    tickInterval: 0.45,
+                    onTickPlayer: (gg) => gg.applyPlayerSlow(0.45, 0.88)
+                });
+            }
+
+            if (tick('cloud') >= (hpPct > 0.55 ? 6.8 : 5.6)) {
+                reset('cloud');
+                const dmg = 5 + this.level * 0.30;
+                g.createAoE(this.x, this.y, 235, 2.6, dmg, 'rgba(76, 175, 80, 0.14)', 'player', {
+                    tickInterval: 0.45,
+                    onTickPlayer: (gg) => gg.applyPlayerSlow(0.5, 0.86)
+                });
+                if (Math.random() < 0.55) {
+                    const ang = Math.random() * Math.PI * 2;
+                    const pos = clampWorld(this.x + Math.cos(ang) * 200, this.y + Math.sin(ang) * 200);
+                    g.spawnEnemyFromType('poisoner', { spawnAt: pos });
+                }
+            }
+            return;
+        }
+
+        if (bt === 'storm') {
+            // 风暴：落雷预警（延迟打击）+ 电弧射击（短减速）
+            const range = 560;
+            if (dist > range * 0.7) {
+                this.x += (dx / dist) * this.speed * dt;
+                this.y += (dy / dist) * this.speed * dt;
+            } else if (dist < range * 0.45) {
+                this.x -= (dx / dist) * this.speed * 0.55 * dt;
+                this.y -= (dy / dist) * this.speed * 0.55 * dt;
+            }
+            if (checkCollision(this, p)) p.takeDamage(this.damage * dt);
+
+            if (tick('arc') >= (hpPct > 0.55 ? 2.8 : 2.2)) {
+                reset('arc');
+                const angle = Math.atan2(dy, dx);
+                g.projectiles.push(new Projectile(g, this.x, this.y, null, {
+                    isEnemy: true,
+                    angle,
+                    color: '#81D4FA',
+                    damage: this.damage * 0.75,
+                    speed: 620,
+                    radius: 4,
+                    onHitPlayer: (gg) => gg.applyPlayerSlow(0.9, 0.84)
+                }));
+            }
+
+            if (tick('strike') >= (hpPct > 0.55 ? 5.8 : 4.6)) {
+                reset('strike');
+                if (!g.delayedExplosions) g.delayedExplosions = [];
+                const dmg = 14 + this.level * 0.55;
+                const n = (hpPct > 0.5 ? 3 : 4);
+                for (let i = 0; i < n; i++) {
+                    const ang = Math.random() * Math.PI * 2;
+                    const rr = 60 + Math.random() * 170;
+                    const pos = clampWorld(p.x + Math.cos(ang) * rr, p.y + Math.sin(ang) * rr);
+                    g.delayedExplosions.push({
+                        t: 0,
+                        delay: 0.55 + Math.random() * 0.25,
+                        x: pos.x,
+                        y: pos.y,
+                        r: 120,
+                        dmg,
+                        burnDps: 0,
+                        burnDur: 0,
+                        slowDur: 0,
+                        slow: 0,
+                        aftershock: (Math.random() < 0.35)
+                    });
+                }
+            }
+            return;
+        }
+
+        if (bt === 'crusher') {
+            // 巨兽：蓄力冲锋 + 震荡波（更像“节奏点”）
+            this.x += (dx / dist) * this.speed * dt;
+            this.y += (dy / dist) * this.speed * dt;
+            if (checkCollision(this, p)) p.takeDamage(this.damage * dt);
+
+            if (!timers.chargeActive) timers.chargeActive = 0;
+            if (timers.chargeActive > 0) {
+                timers.chargeActive -= dt;
+                const mul = 2.35;
+                this.x += (dx / dist) * this.speed * (mul - 1) * dt;
+                this.y += (dy / dist) * this.speed * (mul - 1) * dt;
+                if (timers.chargeActive <= 0.001) {
+                    const dmg = 16 + this.level * 0.55;
+                    g.createAoE(this.x, this.y, 240, 0.35, dmg, 'rgba(141, 110, 99, 0.18)', 'player', { tickInterval: 0.12 });
+                }
+            } else if (tick('charge') >= (hpPct > 0.55 ? 6.0 : 4.8)) {
+                reset('charge');
+                timers.chargeActive = 0.7;
+                g.createAoE(p.x, p.y, 170, 0.5, 0, 'rgba(141, 110, 99, 0.14)', 'both');
+            }
+
+            if (tick('shard') >= (hpPct > 0.55 ? 5.0 : 4.1)) {
+                reset('shard');
+                // 轻量碎石：小范围覆盖，逼走位
+                const dmg = 9 + this.level * 0.40;
+                const n = (hpPct > 0.5 ? 3 : 5);
+                for (let i = 0; i < n; i++) {
+                    const ang = Math.random() * Math.PI * 2;
+                    const pos = clampWorld(p.x + Math.cos(ang) * (120 + Math.random() * 140), p.y + Math.sin(ang) * (120 + Math.random() * 140));
+                    g.createAoE(pos.x, pos.y, 130, 1.2, dmg, 'rgba(141, 110, 99, 0.16)', 'player', { tickInterval: 0.35 });
+                }
+            }
+            return;
+        }
+
+        if (bt === 'chronomancer') {
+            // 时序术士：减速领域 + 闪现 + 回溯自愈（可读的阶段点）
+            const range = 560;
+            if (dist > range * 0.75) {
+                this.x += (dx / dist) * this.speed * dt;
+                this.y += (dy / dist) * this.speed * dt;
+            } else if (dist < range * 0.5) {
+                this.x -= (dx / dist) * this.speed * 0.6 * dt;
+                this.y -= (dy / dist) * this.speed * 0.6 * dt;
+            }
+            if (checkCollision(this, p)) p.takeDamage(this.damage * dt);
+
+            if (tick('bubble') >= (hpPct > 0.55 ? 4.9 : 3.9)) {
+                reset('bubble');
+                const dmg = 6 + this.level * 0.35;
+                g.createAoE(p.x, p.y, 210, 2.4, dmg, 'rgba(206, 147, 216, 0.16)', 'player', {
+                    tickInterval: 0.45,
+                    onTickPlayer: (gg) => gg.applyPlayerSlow(0.6, 0.82)
+                });
+            }
+
+            if (tick('blink') >= (hpPct > 0.55 ? 5.2 : 4.0)) {
+                reset('blink');
+                const ang = Math.random() * Math.PI * 2;
+                const r = 260 + Math.random() * 220;
+                const pos = clampWorld(p.x + Math.cos(ang) * r, p.y + Math.sin(ang) * r);
+                this.x = pos.x;
+                this.y = pos.y;
+            }
+
+            if (hpPct < 0.45 && tick('rewind') >= 13.5) {
+                reset('rewind');
+                this.hp = Math.min(this.maxHp, this.hp + (70 + this.level * 3.0));
+                g.createAoE(this.x, this.y, 220, 0.55, 0, 'rgba(206, 147, 216, 0.16)', 'both');
+                if (Math.random() < 0.6) {
+                    const ang = Math.random() * Math.PI * 2;
+                    const pos = clampWorld(this.x + Math.cos(ang) * 180, this.y + Math.sin(ang) * 180);
+                    g.spawnEnemyFromType('warper', { spawnAt: pos });
+                }
             }
             return;
         }
@@ -4048,15 +4297,48 @@ class Game {
 
     // --- Stage Select UI ---
     getAllStagesMeta() {
-        // 关卡概念（可继续扩展成“主题/地图规则”）
+        // 关卡概念（数据驱动，便于快速扩到 30 天/60 天体验）
+        // 字段：
+        // - theme: 决定怪物池组合（见 getStageEnemyPool）
+        // - bossId: 本关固定 Boss（见 getBossForStage / generateBossBlueprint）
+        // Boss 规则：每个 Boss 原型在 30 关主线中只出现一次；并且“几关一个Boss”（这里设为每 3 关一个 Boss）
+        // Boss关：3,6,9,12,15,18,21,24,27,30（共 10 次，对应 10 个 Boss）
         return [
-            { id: 1, name: '第 1 关：草地边境', desc: '基础教学关：熟悉移动、拾取、升级。' },
-            { id: 2, name: '第 2 关：风行小径', desc: '速度压力上升：学会绕圈与风筝。' },
-            { id: 3, name: '第 3 关：毒沼边缘', desc: '场地机制开始出现：注意毒池与走位。' },
-            { id: 4, name: '第 4 关：圣坛废墟', desc: '回复与护盾机制登场：优先处理关键单位。' },
-            { id: 5, name: '第 5 关：烈焰裂谷', desc: '爆发威胁提高：自爆蜂/盾卫会惩罚站桩。' },
-            { id: 6, name: '第 6 关：冷枪回廊', desc: '远程威胁出现：狙击手迫使你保持机动。' },
-            { id: 7, name: '第 7 关：虚空回响', desc: '高机动敌人与精英池登场：节奏更紧凑。' },
+            // Chapter 1（1~10）：前两关不放Boss，第三关首次Boss
+            { id: 1,  name: '第 1 关：草地边境',     desc: '基础教学关：熟悉移动、拾取、升级。', theme: 'meadow',  bossId: null },
+            { id: 2,  name: '第 2 关：风行小径',     desc: '速度压力上升：学会绕圈与风筝。',     theme: 'meadow',  bossId: null },
+            { id: 3,  name: '第 3 关：毒沼边缘',     desc: '首次Boss：注意毒池与走位。',         theme: 'swamp',   bossId: 'alchemist' },
+            { id: 4,  name: '第 4 关：圣坛废墟',     desc: '回复与护盾机制登场：优先处理关键单位。', theme: 'ruins', bossId: null },
+            { id: 5,  name: '第 5 关：烈焰裂谷',     desc: '爆发威胁提高：自爆蜂/盾卫会惩罚站桩。', theme: 'gorge', bossId: null },
+            { id: 6,  name: '第 6 关：冷枪回廊',     desc: 'Boss关：远程压力高，保持机动。',       theme: 'corridor', bossId: 'gunslinger' },
+            { id: 7,  name: '第 7 关：虚空回响',     desc: '高机动敌人与精英池登场：节奏更紧凑。', theme: 'void',  bossId: null },
+            { id: 8,  name: '第 8 关：黑潮之湾',     desc: '杂兵更密：学会用范围技能“清线”。',   theme: 'meadow', bossId: null },
+            { id: 9,  name: '第 9 关：裂甲哨站',     desc: 'Boss关：硬目标多，考验爆发与走位。',   theme: 'ruins', bossId: 'crusher' },
+            { id: 10, name: '第 10 关：回声钟楼',    desc: '章节收束：熟悉高密度混合怪。',         theme: 'ruins', bossId: null },
+
+            // Chapter 2（11~20）
+            { id: 11, name: '第 11 关：苔影小径',    desc: '持续压迫：中后段机制怪占比上升。',     theme: 'swamp', bossId: null },
+            { id: 12, name: '第 12 关：蜂群边境',    desc: 'Boss关：召唤压力，处理小怪节奏很关键。', theme: 'meadow', bossId: 'queen' },
+            { id: 13, name: '第 13 关：白石回廊',    desc: '远程与盾卫同场：先处理最麻烦的。',       theme: 'corridor', bossId: null },
+            { id: 14, name: '第 14 关：失落圣所',    desc: '治疗与护盾更频繁：不能只顾刷小怪。',     theme: 'ruins', bossId: null },
+            { id: 15, name: '第 15 关：裂隙前线',    desc: 'Boss关：重击压迫，别被逼到边角。',       theme: 'gorge', bossId: 'warden' },
+            { id: 16, name: '第 16 关：风暴岔路',    desc: '落雷干扰走位：把视野留给落点。',         theme: 'corridor', bossId: null },
+            { id: 17, name: '第 17 关：镜像走廊',    desc: '闪现与狙击叠加：学会“预判移动”。',       theme: 'void', bossId: null },
+            { id: 18, name: '第 18 关：毒沼巨穴',    desc: 'Boss关：毒池/跃击，学会提前撤离落点。',   theme: 'swamp', bossId: 'toad' },
+            { id: 19, name: '第 19 关：熔火断层',    desc: '自爆/毒池混合：保持节奏，不要停。',       theme: 'gorge', bossId: null },
+            { id: 20, name: '第 20 关：铸铁斗场',    desc: '章节收束：硬怪密度上升，build 更关键。',   theme: 'ruins', bossId: null },
+
+            // Chapter 3（21~30）
+            { id: 21, name: '第 21 关：失落圣坛',    desc: 'Boss关：护盾相位 + 自愈，优先级管理。',   theme: 'ruins', bossId: 'priest' },
+            { id: 22, name: '第 22 关：深渊回廊',    desc: '远程/闪现/毒池三重压力：别贪输出。',       theme: 'void', bossId: null },
+            { id: 23, name: '第 23 关：断枪长廊',    desc: '狙击更凶：别直线走太久。',               theme: 'corridor', bossId: null },
+            { id: 24, name: '第 24 关：雷鸣高地',    desc: 'Boss关：落雷预警，学会看提示再走位。',     theme: 'gorge', bossId: 'storm' },
+            { id: 25, name: '第 25 关：裂隙回声',    desc: '闪现怪更密：控制与减速能救命。',           theme: 'void', bossId: null },
+            { id: 26, name: '第 26 关：腐化沼泽',    desc: '毒池更频繁：走位要“提前规划”。',         theme: 'swamp', bossId: null },
+            { id: 27, name: '第 27 关：幽影渊口',    desc: 'Boss关：虚空领域 + 召唤幽影，留技能解围。', theme: 'void', bossId: 'reaper' },
+            { id: 28, name: '第 28 关：碎盾遗迹',    desc: '盾卫与治疗同场：优先处理关键单位。',       theme: 'ruins', bossId: null },
+            { id: 29, name: '第 29 关：风行绝壁',    desc: '高机动混合：保持节奏，别被包围。',         theme: 'meadow', bossId: null },
+            { id: 30, name: '第 30 关：轮回尽头',    desc: '终章Boss：控场/闪现/回溯三合一。',         theme: 'void', bossId: 'chronomancer' },
         ];
     }
 
@@ -4067,21 +4349,29 @@ class Game {
             { id: 'gunslinger', name: '镜像枪手 · 零号',     hint: '扇形齐射 + 闪现' },
             { id: 'priest',     name: '圣坛司祭 · 金辉之环', hint: '护盾相位 + 自愈/召唤' },
             { id: 'reaper',     name: '虚空收割者 · 低语',   hint: '虚空领域 + 召唤幽影' },
+            { id: 'warden',     name: '铁壁监军 · 断城',     hint: '重击震荡 + 盾卫援军' },
+            { id: 'alchemist',  name: '瘟疫炼金 · 绿釜',     hint: '投掷毒瓶 + 扩散毒雾' },
+            { id: 'storm',      name: '风暴主宰 · 雷冠',     hint: '落雷预警 + 追击电弧' },
+            { id: 'crusher',    name: '崩岳巨兽 · 石槌',     hint: '蓄力冲锋 + 震荡波' },
+            { id: 'chronomancer', name: '时序术士 · 逆流',   hint: '减速领域 + 闪现/回溯' },
         ];
     }
 
     getBossForStage(stageNumber) {
         const s = Math.max(1, Math.floor(stageNumber || this.stage || 1));
-        // 固定 Boss：每关一个，后续关卡循环（可继续扩展更多 Boss 原型）
-        const order = ['queen', 'toad', 'gunslinger', 'priest', 'reaper'];
-        const id = order[(s - 1) % order.length];
+        // 固定 Boss：优先使用关卡 meta 指定；允许本关无 Boss（bossId=null/'none'/false）
+        const meta = this.getAllStagesMeta().find(m => m.id === s);
+        if (meta && (meta.bossId === null || meta.bossId === false || meta.bossId === '' || meta.bossId === 'none')) return null;
+        const order = ['queen', 'toad', 'gunslinger', 'priest', 'reaper', 'warden', 'alchemist', 'storm', 'crusher', 'chronomancer'];
+        const id = (meta && meta.bossId) ? String(meta.bossId) : order[(s - 1) % order.length];
         const all = this.getBossArchetypesMeta();
         return all.find(b => b.id === id) || all[0];
     }
 
     getBossPoolForStage(stageNumber) {
         // 兼容旧接口：现在固定，不再随机池
-        return [this.getBossForStage(stageNumber)];
+        const b = this.getBossForStage(stageNumber);
+        return b ? [b] : [];
     }
 
     getDifficultyDefs() {
@@ -4118,12 +4408,16 @@ class Game {
 
     openStageSelect() {
         // Defaults from save
+        const maxStages = this.getAllStagesMeta().length;
         const maxUnlocked = this.saveManager ? this.saveManager.getUnlockedStageMax() : 1;
-        const lastStage = (this.saveManager && this.saveManager.data && this.saveManager.data.lastSelectedStage) ? this.saveManager.data.lastSelectedStage : 1;
-        const lastDiff = (this.saveManager && this.saveManager.data && this.saveManager.data.lastSelectedDifficulty) ? this.saveManager.data.lastSelectedDifficulty : 'normal';
-        this.stageSelectMaxUnlocked = Math.max(1, maxUnlocked);
-        this.stageSelectIndex = Math.max(1, Math.min(this.getAllStagesMeta().length, Math.floor(lastStage || 1)));
-        this.stageSelectDifficulty = String(lastDiff || 'normal');
+        this.stageSelectMaxUnlocked = Math.max(1, Math.min(maxStages, maxUnlocked));
+
+        // 默认定位：已解锁最高关卡 + 该关已解锁的最高难度
+        this.stageSelectIndex = Math.max(1, Math.min(maxStages, this.stageSelectMaxUnlocked));
+        const bestDiff = (this.saveManager && typeof this.saveManager.getHighestUnlockedDifficultyForStage === 'function')
+            ? this.saveManager.getHighestUnlockedDifficultyForStage(this.stageSelectIndex)
+            : 'easy';
+        this.stageSelectDifficulty = String(bestDiff || 'easy');
 
         document.getElementById('main-menu').classList.add('hidden');
         const s = document.getElementById('stage-select-screen');
@@ -4157,6 +4451,23 @@ class Game {
         const meta = stages[idx - 1];
         const unlockedMax = Math.max(1, this.stageSelectMaxUnlocked || (this.saveManager ? this.saveManager.getUnlockedStageMax() : 1));
         const isUnlocked = (meta.id <= unlockedMax);
+        let did = (this.stageSelectDifficulty || 'easy');
+
+        // 难度解锁：同一关必须按顺序通关
+        const isDiffUnlocked = (diffId) => {
+            if (!this.saveManager) return true;
+            if (typeof this.saveManager.isStageDifficultyUnlocked !== 'function') return true;
+            return this.saveManager.isStageDifficultyUnlocked(meta.id, diffId);
+        };
+        const highestUnlocked = (this.saveManager && typeof this.saveManager.getHighestUnlockedDifficultyForStage === 'function')
+            ? this.saveManager.getHighestUnlockedDifficultyForStage(meta.id)
+            : 'easy';
+
+        // 如果当前选择的难度未解锁，自动回退到本关已解锁的最高难度
+        if (!isDiffUnlocked(did)) {
+            did = highestUnlocked;
+            this.stageSelectDifficulty = did;
+        }
 
         const titleEl = document.getElementById('stage-title');
         if (titleEl) titleEl.innerText = meta.name;
@@ -4194,7 +4505,7 @@ class Game {
             const b = this.getBossForStage(meta.id);
             const div = document.createElement('div');
             div.className = 'boss-preview-chip';
-            div.innerHTML = `${b.name} <span>· ${b.hint}</span>`;
+            div.innerHTML = b ? `${b.name} <span>· ${b.hint}</span>` : `本关无 Boss <span>· 推进关</span>`;
             bossPreview.appendChild(div);
         }
 
@@ -4202,56 +4513,73 @@ class Game {
         const lootEl = document.getElementById('stage-loot-preview');
         if (lootEl) {
             lootEl.innerHTML = '';
-            const profile = this.getStageLootProfile(meta.id, did);
-            const possibleHeirlooms = ITEMS.filter(i => i.isHeirloom && !(this.saveManager && this.saveManager.data && this.saveManager.data.heirlooms || []).includes(i.id));
-            const standards = ITEMS.filter(i => !i.isHeirloom);
-            const heirloomChance = (possibleHeirlooms.length > 0 ? profile.heirloomChance : 0);
+            const hasBoss = !!this.getBossForStage(meta.id);
+            if (!hasBoss) {
+                const defs = this.getDifficultyDefs();
+                const diff = defs[String(did || 'easy')] || defs.easy;
+                const mul = (diff && diff.shardMul !== undefined) ? diff.shardMul : 1;
+                const shards = Math.floor((2 + Math.floor(meta.id * 0.9)) * mul);
+                const box = document.createElement('div');
+                box.className = 'loot-preview-box';
+                box.innerHTML = `
+                    <div class="loot-line"><b>本关无 Boss</b>：无装备掉落</div>
+                    <div class="loot-line"><b>通关奖励</b>：技能碎片 +${shards}</div>
+                `;
+                lootEl.appendChild(box);
+            } else {
+                const profile = this.getStageLootProfile(meta.id, did);
+                const possibleHeirlooms = ITEMS.filter(i => i.isHeirloom && !(this.saveManager && this.saveManager.data && this.saveManager.data.heirlooms || []).includes(i.id));
+                const standards = ITEMS.filter(i => !i.isHeirloom);
+                const heirloomChance = (possibleHeirlooms.length > 0 ? profile.heirloomChance : 0);
 
-            const box = document.createElement('div');
-            box.className = 'loot-preview-box';
-            box.innerHTML = `
-                <div class="loot-line"><b>必掉</b>：1 件装备（初始等级 ${profile.minLevel}~${profile.maxLevel}，影响强度）</div>
-                <div class="loot-line"><b>传承掉落</b>：${Math.round(heirloomChance * 100)}%（仅在仍有未解锁传承时）</div>
-                <div class="loot-line"><b>普通掉落</b>：${Math.round((1 - heirloomChance) * 100)}%</div>
-            `;
-            const sample = document.createElement('div');
-            sample.className = 'loot-sample';
+                const box = document.createElement('div');
+                box.className = 'loot-preview-box';
+                box.innerHTML = `
+                    <div class="loot-line"><b>必掉</b>：1 件装备（初始等级 ${profile.minLevel}~${profile.maxLevel}，影响强度）</div>
+                    <div class="loot-line"><b>传承掉落</b>：${Math.round(heirloomChance * 100)}%（仅在仍有未解锁传承时）</div>
+                    <div class="loot-line"><b>普通掉落</b>：${Math.round((1 - heirloomChance) * 100)}%</div>
+                `;
+                const sample = document.createElement('div');
+                sample.className = 'loot-sample';
 
-            const pickN = (arr, n) => {
-                const a = [...arr];
-                const out = [];
-                for (let i = 0; i < n && a.length > 0; i++) {
-                    const k = Math.floor(Math.random() * a.length);
-                    out.push(a[k]);
-                    a.splice(k, 1);
-                }
-                return out;
-            };
+                const pickN = (arr, n) => {
+                    const a = [...arr];
+                    const out = [];
+                    for (let i = 0; i < n && a.length > 0; i++) {
+                        const k = Math.floor(Math.random() * a.length);
+                        out.push(a[k]);
+                        a.splice(k, 1);
+                    }
+                    return out;
+                };
 
-            pickN(possibleHeirlooms, Math.min(2, possibleHeirlooms.length)).forEach(it => {
-                const d = document.createElement('div');
-                d.className = 'loot-chip heirloom';
-                d.innerText = `传承：${it.name}`;
-                sample.appendChild(d);
-            });
-            pickN(standards, 3).forEach(it => {
-                const d = document.createElement('div');
-                d.className = 'loot-chip';
-                d.innerText = `装备：${it.name}（+${profile.minLevel}~${profile.maxLevel}）`;
-                sample.appendChild(d);
-            });
+                pickN(possibleHeirlooms, Math.min(2, possibleHeirlooms.length)).forEach(it => {
+                    const d = document.createElement('div');
+                    d.className = 'loot-chip heirloom';
+                    d.innerText = `传承：${it.name}`;
+                    sample.appendChild(d);
+                });
+                pickN(standards, 3).forEach(it => {
+                    const d = document.createElement('div');
+                    d.className = 'loot-chip';
+                    d.innerText = `装备：${it.name}（+${profile.minLevel}~${profile.maxLevel}）`;
+                    sample.appendChild(d);
+                });
 
-            box.appendChild(sample);
-            lootEl.appendChild(box);
+                box.appendChild(sample);
+                lootEl.appendChild(box);
+            }
         }
 
-        const defs = this.getDifficultyDefs();
-        const did = (this.stageSelectDifficulty || 'normal');
         const row = document.getElementById('difficulty-row');
         if (row) {
             row.querySelectorAll('.diff-btn').forEach(btn => {
                 btn.classList.remove('active', 'hell');
                 const bid = btn.getAttribute('data-diff') || 'normal';
+                const ok = isUnlocked && isDiffUnlocked(bid);
+                btn.disabled = !ok;
+                btn.style.opacity = ok ? '1' : '0.35';
+                btn.title = ok ? '' : '需按顺序通关解锁：新手→中级→高级→地狱';
                 if (bid === did) {
                     btn.classList.add('active');
                     if (bid === 'hell') btn.classList.add('hell');
@@ -4261,9 +4589,10 @@ class Game {
 
         const confirm = document.getElementById('stage-confirm-btn');
         if (confirm) {
-            confirm.disabled = !isUnlocked;
-            confirm.style.opacity = isUnlocked ? '1' : '0.55';
-            confirm.innerText = isUnlocked ? '开始' : '未解锁';
+            const canStart = isUnlocked && isDiffUnlocked(did);
+            confirm.disabled = !canStart;
+            confirm.style.opacity = canStart ? '1' : '0.55';
+            confirm.innerText = !isUnlocked ? '未解锁' : (isDiffUnlocked(did) ? '开始' : '未解锁难度');
         }
 
         // Keep last selection synced in save (for convenience)
@@ -4276,6 +4605,10 @@ class Game {
         const stageId = stages[idx - 1].id;
         const unlockedMax = this.saveManager ? this.saveManager.getUnlockedStageMax() : 1;
         if (stageId > unlockedMax) return;
+        if (this.saveManager && typeof this.saveManager.isStageDifficultyUnlocked === 'function') {
+            const did = String(this.stageSelectDifficulty || 'easy');
+            if (!this.saveManager.isStageDifficultyUnlocked(stageId, did)) return;
+        }
 
         this.selectedStage = stageId;
         this.difficultyId = this.stageSelectDifficulty || 'normal';
@@ -4314,10 +4647,10 @@ class Game {
         if (stageSel) stageSel.classList.add('hidden');
         document.getElementById('game-container').classList.remove('hidden');
 
-        // 每关波数：提高波次数量，减少“慢热 -> 突刺”的体感
-        this.wavesTotal = 15;
-        // 单波时长略缩短，让节奏更连贯（总时长≈15*18=270s 再加Boss）
-        this.waveDuration = 18;
+        // 每关波数/时长：把“单关体验”拉到接近 15 分钟（更符合“每天玩一关”的节奏）
+        // 约 30*24=720s（12 分钟）+ Boss 战与结算 ≈ 14~16 分钟
+        this.wavesTotal = 30;
+        this.waveDuration = 24;
 
         // 新轮回开始：清空精英池（精英池只在本次轮回内累计）
         this.eliteBlueprints = [];
@@ -4389,6 +4722,11 @@ class Game {
     }
 
     startNextStageFromLobby() {
+        const maxStages = this.getAllStagesMeta().length;
+        if (this.stage >= maxStages) {
+            this.returnToMenu();
+            return;
+        }
         this.startStage(this.stage + 1, { resetPlayer: true });
     }
 
@@ -4404,63 +4742,86 @@ class Game {
         const clearedEl = document.getElementById('lobby-cleared-stage');
         if (clearedEl) clearedEl.innerText = this.stage;
         const nextEl = document.getElementById('lobby-next-stage');
-        if (nextEl) nextEl.innerText = this.stage + 1;
-        this.renderLobbyEnemyList(this.stage + 1);
+        const maxStages = this.getAllStagesMeta().length;
+        const isFinal = (this.stage >= maxStages);
+        const nextStage = Math.min(maxStages, this.stage + 1);
+        if (nextEl) nextEl.innerText = isFinal ? '已通关' : nextStage;
+        this.renderLobbyEnemyList(nextStage);
+        const nextBtn = document.getElementById('lobby-next-btn');
+        if (nextBtn) nextBtn.innerText = isFinal ? '返回主菜单' : '进入下一关';
     }
 
     getStageEnemyPool(stageNumber) {
         const s = Math.max(1, stageNumber || this.stage || 1);
-        // 每关怪物池：主力怪（旧怪）为主，新增机制怪少量点缀（更“省着用”）
+        // 每关怪物池（数据驱动）：以 theme 为主线，保证 30 关也能持续“换口味”
         // - allowed: 允许出现的类型
         // - weights: 生成权重（越大越常见）
-        // - labels: 大厅展示用（尽量短，突出“本关新增”）
+        // - labels: 大厅展示用（尽量短，突出本关风格）
+        const meta = this.getAllStagesMeta().find(m => m.id === s);
+        const theme = (meta && meta.theme) ? String(meta.theme) : null;
+        const tier = Math.max(1, Math.min(3, Math.floor((s - 1) / 10) + 1)); // 1:1~10, 2:11~20, 3:21~30+
+
+        const themes = {
+            meadow: {
+                allowed: ['basic', 'runner', 'tank', 'splitter', 'ranger'],
+                weights: { basic: 14, runner: 6, tank: 4, splitter: 2, ranger: 3 },
+                labels: ['主力：基础/迅捷/坦克', '点缀：分裂/远程']
+            },
+            swamp: {
+                allowed: ['basic', 'runner', 'tank', 'ranger', 'poisoner', 'splitter'],
+                weights: { basic: 10, runner: 5, tank: 4, ranger: 3, poisoner: 4, splitter: 2 },
+                labels: ['主力：混合', '主题：毒池怪（较多）']
+            },
+            ruins: {
+                allowed: ['basic', 'runner', 'tank', 'ranger', 'healer', 'shielded', 'splitter'],
+                weights: { basic: 9, runner: 4, tank: 5, ranger: 4, healer: 3, shielded: 3, splitter: 2 },
+                labels: ['主力：混合', '主题：治疗/盾卫（较多）']
+            },
+            gorge: {
+                allowed: ['basic', 'runner', 'tank', 'ranger', 'kamikaze', 'shielded', 'poisoner'],
+                weights: { basic: 9, runner: 5, tank: 4, ranger: 4, kamikaze: 4, shielded: 2, poisoner: 2 },
+                labels: ['主力：混合', '主题：自爆蜂（较多）']
+            },
+            corridor: {
+                allowed: ['basic', 'runner', 'tank', 'ranger', 'sniper', 'shielded', 'splitter'],
+                weights: { basic: 9, runner: 5, tank: 4, ranger: 4, sniper: 3, shielded: 2, splitter: 2 },
+                labels: ['主力：混合', '主题：狙击手（较多）']
+            },
+            void: {
+                allowed: ['basic', 'runner', 'tank', 'ranger', 'warper', 'sniper', 'poisoner', 'kamikaze'],
+                weights: { basic: 8, runner: 5, tank: 4, ranger: 4, warper: 3, sniper: 2, poisoner: 2, kamikaze: 2 },
+                labels: ['主力：混合', '主题：闪现怪（较多）']
+            }
+        };
+
+        const base = themes[theme] || themes.meadow;
+
+        // 难度分段：越后面“麻烦怪”权重略升，但不要压过基础怪，避免不可读的混乱
+        const w = { ...(base.weights || {}) };
+        if (tier >= 2) {
+            w.runner = (w.runner || 0) + 1;
+            w.tank = (w.tank || 0) + 1;
+            w.ranger = (w.ranger || 0) + 1;
+            w.splitter = (w.splitter || 0) + 1;
+        }
+        if (tier >= 3) {
+            w.shielded = (w.shielded || 0) + 1;
+            w.sniper = (w.sniper || 0) + 1;
+            w.warper = (w.warper || 0) + 1;
+            w.kamikaze = (w.kamikaze || 0) + 1;
+            w.poisoner = (w.poisoner || 0) + 1;
+            w.healer = (w.healer || 0) + 1;
+        }
+
+        // 极早期保底：第 1 关只给基础怪，避免新手被机制怪教育
         if (s === 1) {
-            return {
-                allowed: ['basic'],
-                weights: { basic: 18 },
-                labels: ['主力：基础怪（红团子）']
-            };
+            return { allowed: ['basic'], weights: { basic: 18 }, labels: ['主力：基础怪（红团子）'] };
         }
-        if (s === 2) {
-            return {
-                allowed: ['basic', 'runner', 'tank', 'splitter'],
-                weights: { basic: 14, runner: 5, tank: 3, splitter: 2 },
-                labels: ['主力：基础/迅捷/坦克', '新增：分裂怪（少量）']
-            };
-        }
-        if (s === 3) {
-            return {
-                allowed: ['basic', 'runner', 'tank', 'ranger', 'poisoner'],
-                weights: { basic: 10, runner: 5, tank: 4, ranger: 3, poisoner: 2 },
-                labels: ['主力：基础/迅捷/坦克/远程', '新增：毒池怪（少量）']
-            };
-        }
-        if (s === 4) {
-            return {
-                allowed: ['basic', 'runner', 'tank', 'ranger', 'healer'],
-                weights: { basic: 9, runner: 4, tank: 5, ranger: 4, healer: 2 },
-                labels: ['主力：基础/迅捷/坦克/远程', '新增：治疗祭司（少量）']
-            };
-        }
-        if (s === 5) {
-            return {
-                allowed: ['basic', 'runner', 'tank', 'ranger', 'kamikaze', 'shielded'],
-                weights: { basic: 9, runner: 5, tank: 4, ranger: 4, kamikaze: 2, shielded: 2 },
-                labels: ['主力：基础/迅捷/坦克/远程', '新增：自爆蜂/盾卫（少量）']
-            };
-        }
-        if (s === 6) {
-            return {
-                allowed: ['basic', 'runner', 'tank', 'ranger', 'kamikaze', 'splitter', 'healer', 'poisoner', 'shielded', 'sniper'],
-                weights: { basic: 8, runner: 5, tank: 4, ranger: 4, kamikaze: 2, splitter: 2, healer: 2, poisoner: 2, shielded: 2, sniper: 1 },
-                labels: ['主力：旧怪混合', '点缀：狙击手（稀有）']
-            };
-        }
-        // 7+：在“旧怪混合”基础上，偶尔刷出 warper（非常稀有）
+
         return {
-            allowed: ['basic', 'runner', 'tank', 'ranger', 'kamikaze', 'splitter', 'healer', 'poisoner', 'shielded', 'sniper', 'warper'],
-            weights: { basic: 8, runner: 5, tank: 4, ranger: 4, kamikaze: 2, splitter: 2, healer: 2, poisoner: 2, shielded: 2, sniper: 1, warper: 1 },
-            labels: ['主力：旧怪混合', '点缀：狙击手/扭曲幽影（稀有）']
+            allowed: base.allowed || ['basic'],
+            weights: w,
+            labels: (base.labels || [])
         };
     }
 
@@ -4693,9 +5054,28 @@ class Game {
                 this.spawnBudget = Math.min(this.spawnBudget, 2);
             }
         } else {
-            if (!this.bossActive) {
-                this.spawnBoss();
-                this.bossActive = true;
+            const bossMeta = this.getBossForStage(this.stage);
+            if (bossMeta) {
+                if (!this.bossActive) {
+                    this.spawnBoss();
+                    this.bossActive = true;
+                }
+            } else {
+                // 无Boss关：波次结束即通关，给轻量奖励并进入大厅
+                this.sfx?.play('stageClear');
+                if (this.saveManager && typeof this.saveManager.markStageDifficultyCleared === 'function') {
+                    this.saveManager.markStageDifficultyCleared(this.stage, this.difficultyId || 'easy');
+                }
+                const defs = this.getDifficultyDefs();
+                const diff = defs[String(this.difficultyId || 'easy')] || defs.easy;
+                const mul = (diff && diff.shardMul !== undefined) ? diff.shardMul : 1;
+                if (this.saveManager) this.saveManager.addSkillShards(Math.floor((2 + Math.floor(this.stage * 0.9)) * mul));
+                if (this.saveManager) {
+                    const maxStages = this.getAllStagesMeta().length;
+                    this.saveManager.unlockStage(Math.min(maxStages, this.stage + 1));
+                }
+                this.openLobby();
+                return;
             }
         }
 
@@ -5017,6 +5397,8 @@ class Game {
     }
 
     spawnBoss() {
+        // 保险：本关无Boss则不生成
+        if (!this.getBossForStage(this.stage)) return;
         if (this.sfx) this.sfx.play('bossSpawn');
         document.getElementById('boss-hp-container').classList.remove('hidden');
         const bp = this.generateBossBlueprint();
@@ -5033,12 +5415,21 @@ class Game {
         this.bossRef = null;
         document.getElementById('boss-hp-container').classList.add('hidden');
         this.registerEliteFromBoss(boss);
+
+        // 记录本关本难度已通关（用于难度逐级解锁）
+        if (this.saveManager && typeof this.saveManager.markStageDifficultyCleared === 'function') {
+            this.saveManager.markStageDifficultyCleared(this.stage, this.difficultyId || 'easy');
+        }
+
         // Boss 奖励：技能碎片（关卡外解锁用）
         const diff = this.getDifficulty ? this.getDifficulty() : { shardMul: 1 };
         const mul = (diff && diff.shardMul !== undefined) ? diff.shardMul : 1;
         this.saveManager.addSkillShards(Math.floor((6 + Math.floor(this.stage * 2)) * mul));
         // 通关解锁下一关（存档持久化）
-        if (this.saveManager) this.saveManager.unlockStage(this.stage + 1);
+        if (this.saveManager) {
+            const maxStages = this.getAllStagesMeta().length;
+            this.saveManager.unlockStage(Math.min(maxStages, this.stage + 1));
+        }
         this.state = 'PAUSED';
         this.pendingLootItem = this.generateLoot();
         
@@ -5348,6 +5739,87 @@ class Game {
                     exp: 38,
                     radius: 60,
                     color: '#B388FF'
+                })
+            },
+            warden: {
+                id: 'warden',
+                name: '铁壁监军 · 断城',
+                color: '#90A4AE',
+                buildConfig: () => ({
+                    type: 'boss',
+                    bossType: 'warden',
+                    hp: 1040 + s * 200,
+                    speed: 60 + Math.min(22, s * 1.6),
+                    damage: 22 + s * 3,
+                    exp: 40,
+                    radius: 66,
+                    color: '#90A4AE'
+                })
+            },
+            alchemist: {
+                id: 'alchemist',
+                name: '瘟疫炼金 · 绿釜',
+                color: '#7CB342',
+                buildConfig: () => ({
+                    type: 'boss',
+                    bossType: 'alchemist',
+                    hp: 860 + s * 165,
+                    speed: 74 + Math.min(32, s * 1.8),
+                    damage: 16 + s * 3,
+                    exp: 42,
+                    radius: 58,
+                    color: '#7CB342'
+                })
+            },
+            storm: {
+                id: 'storm',
+                name: '风暴主宰 · 雷冠',
+                color: '#81D4FA',
+                buildConfig: () => ({
+                    type: 'boss',
+                    bossType: 'storm',
+                    hp: 900 + s * 175,
+                    speed: 78 + Math.min(36, s * 2),
+                    damage: 18 + s * 3,
+                    exp: 44,
+                    radius: 60,
+                    color: '#81D4FA',
+                    isRanged: true,
+                    attackRange: 560,
+                    rangedProfile: { cooldown: 2.6, projSpeed: 580, color: '#81D4FA', radius: 4, onHitSlow: { duration: 0.9, speedMul: 0.84 } }
+                })
+            },
+            crusher: {
+                id: 'crusher',
+                name: '崩岳巨兽 · 石槌',
+                color: '#8D6E63',
+                buildConfig: () => ({
+                    type: 'boss',
+                    bossType: 'crusher',
+                    hp: 1180 + s * 220,
+                    speed: 58 + Math.min(20, s * 1.4),
+                    damage: 24 + s * 3,
+                    exp: 46,
+                    radius: 72,
+                    color: '#8D6E63'
+                })
+            },
+            chronomancer: {
+                id: 'chronomancer',
+                name: '时序术士 · 逆流',
+                color: '#CE93D8',
+                buildConfig: () => ({
+                    type: 'boss',
+                    bossType: 'chronomancer',
+                    hp: 940 + s * 185,
+                    speed: 76 + Math.min(34, s * 2),
+                    damage: 18 + s * 3,
+                    exp: 48,
+                    radius: 60,
+                    color: '#CE93D8',
+                    isRanged: true,
+                    attackRange: 560,
+                    rangedProfile: { cooldown: 2.4, projSpeed: 600, color: '#CE93D8', radius: 4, onHitSlow: { duration: 1.0, speedMul: 0.82 } }
                 })
             }
         };
