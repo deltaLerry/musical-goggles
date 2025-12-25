@@ -32,6 +32,16 @@ class SoundManager {
         } catch (_) { }
     }
 
+    setVolume(v) {
+        const nv = Number(v);
+        if (!Number.isFinite(nv)) return;
+        this.volume = Math.max(0, Math.min(1, nv));
+        if (this.master && this.master.gain) {
+            try { this.master.gain.value = this.volume; } catch (_) { }
+        }
+        this._savePrefs();
+    }
+
     setEnabled(on) {
         this.enabled = !!on;
         this._savePrefs();
@@ -3283,9 +3293,11 @@ class Game {
 
         const viewTitle = (id) => ({
             profile: '个人信息',
+            status: '状态',
             bag: '背包',
             equip: '装备',
             activities: '活动',
+            settings: '设置',
             stageSelect: '选择关卡',
             skills: '技能成长',
             skillDetail: '技能详情',
@@ -3945,6 +3957,141 @@ class Game {
             }
         };
 
+        const renderSettingsView = () => {
+            const root = document.getElementById('panel-settings-root');
+            if (!root) return;
+            const sfx = this.sfx;
+            const safe = (s) => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+            if (!sfx) {
+                root.innerHTML = `<div class="panel-card"><div class="panel-card-title">音效</div><div class="panel-card-desc">音效系统未初始化</div></div>`;
+                return;
+            }
+
+            // 5 档音量（与需求一致）。内部仍然使用 0~1 浮点存储。
+            const steps = [0.10, 0.18, 0.26, 0.34, 0.42];
+            const nearestStep = () => {
+                let best = 1, bestD = Infinity;
+                for (let i = 0; i < steps.length; i++) {
+                    const d = Math.abs((sfx.volume || 0) - steps[i]);
+                    if (d < bestD) { bestD = d; best = i + 1; }
+                }
+                return best;
+            };
+            const curStep = nearestStep();
+
+            root.innerHTML = `
+                <div class="panel-entry" id="panel-setting-sfx-toggle" role="button" tabindex="0">
+                    <div class="panel-entry-left">
+                        <div class="panel-entry-icon">${sfx.enabled ? '🔊' : '🔇'}</div>
+                        <div class="panel-entry-text">
+                            <div class="panel-entry-title">音效开关</div>
+                            <div class="panel-entry-desc">提示音 / 释放音 / 命中音等（不包含受伤音效）</div>
+                        </div>
+                    </div>
+                    <div class="panel-entry-right">${sfx.enabled ? '开启' : '关闭'}</div>
+                </div>
+
+                <div class="panel-card">
+                    <div class="panel-card-title">音量大小</div>
+                    <div class="panel-card-desc">共 5 档：当前 <b>${safe(curStep)}</b>/5</div>
+                    <div class="panel-tabs" style="margin-top: 10px;">
+                        ${[1,2,3,4,5].map(n => `<button class="panel-tab ${n===curStep?'active':''}" data-vol-step="${n}">${n}</button>`).join('')}
+                    </div>
+                    <div class="panel-note">提示：音量会保存到本地，下次进入游戏自动生效。</div>
+                </div>
+            `;
+
+            const toggleEl = document.getElementById('panel-setting-sfx-toggle');
+            if (toggleEl) {
+                const toggle = () => {
+                    if (sfx.enabled) {
+                        sfx.play('toggleOff');
+                        sfx.setEnabled(false);
+                    } else {
+                        sfx.setEnabled(true);
+                        sfx.play('toggleOn');
+                    }
+                    if (typeof this._syncHudSoundBtn === 'function') this._syncHudSoundBtn();
+                    renderSettingsView();
+                };
+                toggleEl.onclick = toggle;
+                toggleEl.onkeydown = (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+                };
+            }
+
+            root.querySelectorAll('button[data-vol-step]').forEach(btn => {
+                btn.onclick = () => {
+                    const step = Math.max(1, Math.min(5, Math.floor(Number(btn.getAttribute('data-vol-step') || '1'))));
+                    sfx.setVolume(steps[step - 1]);
+                    if (sfx.enabled) sfx.play('click');
+                    renderSettingsView();
+                };
+            });
+        };
+
+        const renderStatusView = () => {
+            const root = document.getElementById('panel-status-root');
+            if (!root) return;
+            const safe = (s) => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+
+            const sm = this.saveManager;
+            const shards = sm ? Math.max(0, Math.floor(sm.data.skillShards || 0)) : 0;
+            const unlockedStage = sm ? sm.getUnlockedStageMax() : 1;
+            const lastStage = sm ? Math.max(1, Math.floor(sm.data.lastSelectedStage || 1)) : 1;
+            const lastDiffId = sm ? String(sm.data.lastSelectedDifficulty || 'normal') : 'normal';
+            const diffMap = { easy: '新手', normal: '中级', hard: '高级', hell: '地狱' };
+            const lastDiff = diffMap[lastDiffId] || '中级';
+
+            const heirlooms = (sm && Array.isArray(sm.data.heirlooms)) ? sm.data.heirlooms : [];
+            const heirloomNames = heirlooms.map(hid => {
+                const it = ITEMS.find(i => i.id === hid);
+                return it ? it.name : hid;
+            });
+
+            const p = this.player;
+            const hasRun = !!(p && typeof p === 'object');
+            const runStats = hasRun ? [
+                ['等级', p.level],
+                ['攻击力', Math.floor(p.damage)],
+                ['生命值', `${Math.floor(p.hp)}/${Math.floor(p.maxHp)}`],
+                ['攻速', `${(1 / p.attackCooldown).toFixed(2)}/s`],
+                ['移速', Math.floor(p.speed)],
+                ['减伤', Math.floor(p.damageReduction)],
+                ['击杀回血', p.killHeal || 0],
+            ] : [];
+
+            root.innerHTML = `
+                <div class="panel-card">
+                    <div class="panel-card-title">玩家信息</div>
+                    <div class="panel-card-desc">玩家：<b>玩家</b></div>
+                    <div class="panel-card-desc">技能碎片：<b>${safe(shards)}</b></div>
+                    <div class="panel-card-desc">已解锁关卡：第 <b>${safe(unlockedStage)}</b> 关</div>
+                    <div class="panel-card-desc">上次选择：第 <b>${safe(lastStage)}</b> 关 · <b>${safe(lastDiff)}</b></div>
+                </div>
+
+                <div class="panel-card">
+                    <div class="panel-card-title">传承装备</div>
+                    <div class="panel-card-desc">${heirloomNames.length ? safe(heirloomNames.join('、')) : '暂无已激活传承'}</div>
+                </div>
+
+                <div class="panel-card">
+                    <div class="panel-card-title">局内状态</div>
+                    <div class="panel-card-desc">${hasRun ? '当前关卡内角色属性（仅展示）' : '未进入关卡，暂无局内状态'}</div>
+                    ${hasRun ? `
+                        <div style="margin-top: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; text-align: left;">
+                            ${runStats.map(([k, v]) => `
+                                <div class="stat-row" style="border-bottom: 1px solid rgba(255,255,255,0.10); padding: 6px 0;">
+                                    <span>${safe(k)}</span><span class="stat-val">${safe(v)}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ``}
+                    <div class="panel-note">提示：关卡内的“个人信息/属性面板”已移至此处。</div>
+                </div>
+            `;
+        };
+
         const syncPanelUI = () => {
             if (!viewsEl) return;
             const views = getViews();
@@ -3970,6 +4117,8 @@ class Game {
             // When panel shows skills views, render content
             if (cur === 'skills') renderSkillsList();
             if (cur === 'skillDetail') renderSkillDetail();
+            if (cur === 'settings') renderSettingsView();
+            if (cur === 'status') renderStatusView();
             if (cur === 'stageSelect') {
                 // Keep stage select UI in sync when opened in panel
                 try { this.saveManager?.updateUI(); } catch (_) { }
@@ -4040,6 +4189,8 @@ class Game {
         if (profileBtn) profileBtn.onclick = () => { this.sfx.play('open'); openPanel('profile'); };
         const activityBtn = document.getElementById('hub-mail-btn');
         if (activityBtn) activityBtn.onclick = () => { this.sfx.play('open'); openPanel('activities'); };
+        const settingsBtn = document.getElementById('hub-settings-btn');
+        if (settingsBtn) settingsBtn.onclick = () => { this.sfx.play('open'); openPanel('settings'); };
 
         // Skills icon -> open skills panel (unified UX)
         const skillsBtn = document.getElementById('shop-btn');
@@ -4101,6 +4252,8 @@ class Game {
                 soundBtn.title = this.sfx.enabled ? '音效：开' : '音效：关';
             };
             syncBtn();
+            // 供“设置面板”复用
+            this._syncHudSoundBtn = syncBtn;
             soundBtn.onclick = () => {
                 // 关的时候也给一个“关闭”提示（先播再关，避免永远听不到）
                 if (this.sfx.enabled) {
@@ -5186,16 +5339,14 @@ class Game {
     }
 
     updateStatsPanel() {
-        const p = this.player;
         const panel = document.getElementById('full-stats-panel');
+        if (!panel) return;
+        // 需求：将“个人信息/属性”从关卡内移除，统一放到 大厅 > 个人信息 > 状态
         panel.innerHTML = `
-            <div class="stat-row"><span>等级</span><span class="stat-val">${p.level}</span></div>
-            <div class="stat-row"><span>攻击力</span><span class="stat-val">${Math.floor(p.damage)}</span></div>
-            <div class="stat-row"><span>生命值</span><span class="stat-val">${Math.floor(p.hp)}/${Math.floor(p.maxHp)}</span></div>
-            <div class="stat-row"><span>攻速</span><span class="stat-val">${(1/p.attackCooldown).toFixed(2)}/s</span></div>
-            <div class="stat-row"><span>移速</span><span class="stat-val">${Math.floor(p.speed)}</span></div>
-            <div class="stat-row"><span>减伤</span><span class="stat-val">${Math.floor(p.damageReduction)}</span></div>
-            <div class="stat-row"><span>击杀回血</span><span class="stat-val">${p.killHeal||0}</span></div>
+            <div class="stat-row" style="grid-column: 1 / -1; border-bottom: none;">
+                <span>提示</span>
+                <span class="stat-val">属性面板已移至：大厅 &gt; 个人信息 &gt; 状态</span>
+            </div>
         `;
     }
 

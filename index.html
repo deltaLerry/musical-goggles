@@ -96,7 +96,7 @@
                             <span class="hub-icon-text">活动</span>
                         </button>
 
-                        <button id="hub-settings-btn" class="hub-icon-btn" disabled title="即将加入：设置/选项">
+                        <button id="hub-settings-btn" class="hub-icon-btn" title="设置">
                             <span class="hub-icon-emoji">⚙</span>
                             <span class="hub-icon-text">设置</span>
                         </button>
@@ -124,7 +124,7 @@
                 <section class="panel-view" data-view="profile">
                     <div class="panel-section-title">个人信息</div>
                     <div class="panel-grid">
-                        <button class="panel-item" disabled title="即将加入：状态/战力">
+                        <button class="panel-item" data-nav="status" title="查看当前玩家信息">
                             <div class="panel-item-icon">📊</div>
                             <div class="panel-item-name">状态</div>
                         </button>
@@ -141,6 +141,12 @@
                             <div class="panel-item-name">成就</div>
                         </button>
                     </div>
+                </section>
+
+                <!-- Status (Profile sub-view) -->
+                <section class="panel-view" data-view="status">
+                    <div class="panel-section-title">状态</div>
+                    <div id="panel-status-root" class="panel-list"></div>
                 </section>
 
                 <!-- Bag -->
@@ -194,6 +200,12 @@
                             <div class="panel-card-desc">这里可以无限加卡片，列表可上下滚动。</div>
                         </div>
                     </div>
+                </section>
+
+                <!-- Settings (Hub entry) -->
+                <section class="panel-view" data-view="settings">
+                    <div class="panel-section-title">设置</div>
+                    <div id="panel-settings-root" class="panel-list"></div>
                 </section>
 
                 <!-- Stage Select (inside panel system; keep UI) -->
