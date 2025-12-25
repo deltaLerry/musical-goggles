@@ -3045,32 +3045,163 @@ class Game {
         const panelSkillShardsEl = document.getElementById('panel-skill-shards');
         const panelSkillListEl = document.getElementById('panel-skill-list');
         const panelSkillDetailEl = document.getElementById('panel-skill-detail');
+        const panelSkillTypeTabsEl = document.getElementById('panel-skill-type-tabs');
+        const panelSkillArchTabsEl = document.getElementById('panel-skill-arch-tabs');
 
         const safeHtml = (s) => String(s || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
         const getSkillTypeLabel = (def) => (def && def.type === 'active') ? '主动' : '被动';
+
+        // Panel confirm (in-panel style)
+        const openPanelConfirm = ({ title, desc, confirmText = '确认', cancelText = '取消', danger = false } = {}) => {
+            return new Promise((resolve) => {
+                const existing = document.getElementById('panel-confirm');
+                if (existing) existing.remove();
+                const wrap = document.createElement('div');
+                wrap.id = 'panel-confirm';
+                wrap.className = 'panel-confirm';
+                wrap.innerHTML = `
+                    <div class="panel-confirm-backdrop" data-x="1"></div>
+                    <div class="panel-confirm-box" role="dialog" aria-modal="true">
+                        <div class="panel-confirm-title">${safeHtml(title || '确认操作')}</div>
+                        <div class="panel-confirm-desc">${safeHtml(desc || '')}</div>
+                        <div class="panel-confirm-actions">
+                            <button class="panel-secondary-btn" data-cancel="1">${safeHtml(cancelText)}</button>
+                            <button class="${danger ? 'panel-danger-btn' : 'panel-primary-btn'}" data-ok="1">${safeHtml(confirmText)}</button>
+                        </div>
+                    </div>
+                `;
+                const cleanup = (ans) => { wrap.remove(); resolve(ans); };
+                wrap.addEventListener('click', (ev) => {
+                    const t = ev.target;
+                    if (!t) return;
+                    if (t.getAttribute && (t.getAttribute('data-x') === '1' || t.getAttribute('data-cancel') === '1')) cleanup(false);
+                    if (t.getAttribute && t.getAttribute('data-ok') === '1') cleanup(true);
+                });
+                document.body.appendChild(wrap);
+            });
+        };
+
+        // Skill filter state (two-level: type -> arch)
+        if (!this._panelSkillUI || typeof this._panelSkillUI !== 'object') {
+            this._panelSkillUI = { type: 'active', arch: 'sorcery' };
+        }
+        const panelUI = this._panelSkillUI;
+
+        const getArchetype = (id, def) => {
+            const map = {
+                // Active => Sorcery (巫术)
+                poison_nova: 'sorcery',
+                blinding_dart: 'sorcery',
+                mushroom_trap: 'sorcery',
+                chain_lightning: 'sorcery',
+                frost_nova: 'sorcery',
+                blade_storm: 'sorcery',
+                healing_totem: 'sorcery',
+                meteor_strike: 'sorcery',
+
+                // Offensive / tempo => Swift (迅猛)
+                sharpness: 'swift',
+                quick_draw: 'swift',
+                haste: 'swift',
+                multishot: 'swift',
+                split_shot: 'swift',
+                toxic_blades: 'swift',
+                adrenaline: 'swift',
+
+                // Defense => Stone (磐石)
+                vitality: 'stone',
+                health_boost: 'stone',
+                regen: 'stone',
+                iron_skin: 'stone',
+
+                // Utility / economy / control => Insight (启迪)
+                swiftness: 'insight',
+                wisdom: 'insight',
+                meditation: 'insight',
+                reach: 'insight',
+                arcane_amp: 'insight',
+            };
+            if (map[id]) return map[id];
+            if (def && def.type === 'active') return 'sorcery';
+            const text = ((def && def.name) ? def.name : '') + ' ' + ((def && def.unlockDesc) ? def.unlockDesc : '');
+            if (/经验|拾取|冷却|技能|奥术|掌控|冥想|智慧/.test(text)) return 'insight';
+            if (/生命|减伤|再生|铁皮|强壮|体魄/.test(text)) return 'stone';
+            return 'swift';
+        };
+
+        const archLabel = (a) => ({ sorcery: '巫术', swift: '迅猛', stone: '磐石', insight: '启迪' }[a] || '巫术');
+        const archOrder = ['sorcery', 'swift', 'stone', 'insight'];
+
+        const renderSkillTabs = (allSkills) => {
+            if (!panelSkillTypeTabsEl || !panelSkillArchTabsEl) return;
+            const typeCounts = { active: 0, passive: 0 };
+            const archCounts = { sorcery: 0, swift: 0, stone: 0, insight: 0 };
+            allSkills.forEach(s => {
+                typeCounts[s.type] = (typeCounts[s.type] || 0) + 1;
+                archCounts[s.arch] = (archCounts[s.arch] || 0) + 1;
+            });
+
+            const typeTabs = [
+                { id: 'active', label: '主动' },
+                { id: 'passive', label: '被动' },
+            ];
+            panelSkillTypeTabsEl.innerHTML = typeTabs.map(t => {
+                const act = (panelUI.type === t.id) ? 'active' : '';
+                return `<button class="panel-tab ${act}" data-type="${safeHtml(t.id)}">${safeHtml(t.label)}<span class="badge">${typeCounts[t.id] || 0}</span></button>`;
+            }).join('');
+
+            panelSkillArchTabsEl.innerHTML = archOrder.map(a => {
+                const act = (panelUI.arch === a) ? 'active' : '';
+                return `<button class="panel-tab ${safeHtml(a)} ${act}" data-arch="${safeHtml(a)}">${safeHtml(archLabel(a))}<span class="badge">${archCounts[a] || 0}</span></button>`;
+            }).join('');
+
+            panelSkillTypeTabsEl.querySelectorAll('button[data-type]').forEach(btn => {
+                btn.onclick = () => {
+                    panelUI.type = btn.getAttribute('data-type') || 'active';
+                    // default arch per type: keep current if exists, else sorcery
+                    if (!panelUI.arch) panelUI.arch = 'sorcery';
+                    renderSkillsList();
+                };
+            });
+            panelSkillArchTabsEl.querySelectorAll('button[data-arch]').forEach(btn => {
+                btn.onclick = () => {
+                    panelUI.arch = btn.getAttribute('data-arch') || 'sorcery';
+                    renderSkillsList();
+                };
+            });
+        };
 
         const renderSkillsList = () => {
             if (!panelSkillListEl || !this.saveManager) return;
             const sm = this.saveManager;
             if (panelSkillShardsEl) panelSkillShardsEl.innerText = String(sm.data.skillShards || 0);
 
-            const all = Object.keys(SKILLS || {}).map(id => ({ id, def: SKILLS[id] })).filter(x => x.def);
-            // Keep it simple: active first, then passive; unlocked first
-            all.sort((a, b) => {
-                const al = metaGetSkillLevel(sm, a.id);
-                const bl = metaGetSkillLevel(sm, b.id);
-                const au = al >= 1, bu = bl >= 1;
-                if (au !== bu) return au ? -1 : 1;
-                const at = (a.def.type === 'active') ? 0 : 1;
-                const bt = (b.def.type === 'active') ? 0 : 1;
-                if (at !== bt) return at - bt;
+            const all = Object.keys(SKILLS || {})
+                .map(id => ({ id, def: SKILLS[id] }))
+                .filter(x => x.def)
+                .map(s => {
+                    const metaLv = metaGetSkillLevel(sm, s.id);
+                    const unlocked = metaLv >= 1;
+                    const type = (s.def.type === 'active') ? 'active' : 'passive';
+                    const arch = getArchetype(s.id, s.def);
+                    return { ...s, metaLv, unlocked, type, arch };
+                });
+
+            renderSkillTabs(all.filter(s => s.type === panelUI.type));
+
+            const filtered = all.filter(s => s.type === panelUI.type && s.arch === panelUI.arch);
+
+            // Sort: unlocked first, then level desc, then name
+            filtered.sort((a, b) => {
+                if (a.unlocked !== b.unlocked) return a.unlocked ? -1 : 1;
+                if (a.metaLv !== b.metaLv) return b.metaLv - a.metaLv;
                 return (a.def.name || a.id).localeCompare(b.def.name || b.id, 'zh-CN');
             });
 
-            panelSkillListEl.innerHTML = all.map(s => {
-                const lv = metaGetSkillLevel(sm, s.id);
-                const unlocked = lv >= 1;
+            panelSkillListEl.innerHTML = filtered.map(s => {
+                const lv = s.metaLv;
+                const unlocked = s.unlocked;
                 const next = metaDescribeNextLevel(s.id, lv);
                 const cls = `panel-skill-card ${unlocked ? '' : 'locked'}`;
                 const meta = unlocked ? `Lv.${lv}/${META_SKILL_MAX_LEVEL}` : `未解锁 · Lv.${lv}/${META_SKILL_MAX_LEVEL}`;
@@ -3078,7 +3209,7 @@ class Game {
                 return `
                     <button class="${cls}" data-nav="skillDetail" data-skill="${safeHtml(s.id)}">
                         <div class="panel-skill-top">
-                            <div class="panel-skill-name">${safeHtml(s.def.name)} <span class="panel-tag">${safeHtml(type)}</span></div>
+                            <div class="panel-skill-name">${safeHtml(s.def.name)} <span class="panel-tag">${safeHtml(type)}</span> <span class="panel-tag">${safeHtml(archLabel(s.arch))}</span></div>
                             <div class="panel-skill-meta">${safeHtml(meta)}</div>
                         </div>
                         <div class="panel-skill-desc">${safeHtml(next)}</div>
@@ -3114,53 +3245,222 @@ class Game {
             // Derive "current stats" for active skills using getParams() + meta apply.
             let statsLines = [];
             let mechLines = [];
+            let nextA2BLines = [];
             if (def.type === 'active' && typeof def.getParams === 'function') {
                 try {
-                    const stubGame = { saveManager: sm };
                     const casterStub = { cdr: 0, skillCdMul: 1, skillDmgMul: 1 };
-                    const p = def.getParams(stubGame, 1, casterStub) || {};
-                    const m = p._meta || {};
+                    const stubGame = { saveManager: sm };
+
+                    const prevLv = Math.max(0, Math.floor((sm.data.skillLevels && sm.data.skillLevels[sid]) || 0));
+                    const getParamsAt = (metaLevel) => {
+                        // Temporarily override meta level for diff preview.
+                        sm.data.skillLevels = sm.data.skillLevels || {};
+                        const old = sm.data.skillLevels[sid];
+                        sm.data.skillLevels[sid] = Math.max(0, Math.min(META_SKILL_MAX_LEVEL, Math.floor(metaLevel || 0)));
+                        const out = def.getParams(stubGame, 1, casterStub) || {};
+                        sm.data.skillLevels[sid] = old;
+                        return out;
+                    };
+
+                    const pCur = getParamsAt(lv);
+                    const pNxt = getParamsAt(Math.min(META_SKILL_MAX_LEVEL, lv + 1));
+                    const m = (pCur && pCur._meta) ? pCur._meta : {};
+                    const m2 = (pNxt && pNxt._meta) ? pNxt._meta : {};
 
                     const fmt = (n) => (typeof n === 'number' && Number.isFinite(n)) ? (Math.abs(n) >= 100 ? String(Math.round(n)) : n.toFixed(2)) : '';
                     const pick = (obj, keys) => {
                         for (const k of keys) if (obj[k] !== undefined) return obj[k];
                         return undefined;
                     };
-                    const cd = pick(p, ['cooldown']);
-                    if (cd !== undefined) statsLines.push(`冷却：${fmt(cd)}s`);
+                    // Skill-specific field mapping (use more semantic names)
+                    const statusMap = {
+                        poison_nova: () => {
+                            const out = [];
+                            out.push(`局内等级：1`);
+                            if (pCur.cooldown !== undefined) out.push(`冷却：${fmt(pCur.cooldown)}s`);
+                            if (pCur.dmgPerTick !== undefined) out.push(`每跳伤害：${fmt(pCur.dmgPerTick)}`);
+                            if (pCur.tickInterval !== undefined) out.push(`跳伤间隔：${fmt(pCur.tickInterval)}s`);
+                            if (pCur.duration !== undefined) out.push(`持续：${fmt(pCur.duration)}s`);
+                            if (pCur.radius !== undefined) out.push(`毒圈半径：${fmt(pCur.radius)}`);
+                            if (pCur.novas !== undefined) out.push(`毒圈数量：${fmt(pCur.novas)}`);
+                            if (pCur.followPlayer) out.push(`形态：跟随自身`);
+                            return out;
+                        },
+                        blinding_dart: () => {
+                            const out = [];
+                            out.push(`局内等级：1`);
+                            if (pCur.cooldown !== undefined) out.push(`冷却：${fmt(pCur.cooldown)}s`);
+                            if (pCur.damage !== undefined) out.push(`单发伤害：${fmt(pCur.damage)}`);
+                            if (pCur.range !== undefined) out.push(`射程：${fmt(pCur.range)}`);
+                            if (pCur.stunDuration !== undefined) out.push(`眩晕：${fmt(pCur.stunDuration)}s`);
+                            if (pCur.shots !== undefined) out.push(`目标数：${fmt(pCur.shots)}`);
+                            return out;
+                        },
+                        mushroom_trap: () => {
+                            const out = [];
+                            out.push(`局内等级：1`);
+                            if (pCur.cooldown !== undefined) out.push(`冷却：${fmt(pCur.cooldown)}s`);
+                            if (pCur.damage !== undefined) out.push(`爆炸伤害：${fmt(pCur.damage)}`);
+                            if (pCur.count !== undefined) out.push(`蘑菇数量：${fmt(pCur.count)}`);
+                            if (pCur.armTime !== undefined) out.push(`布置时间：${fmt(pCur.armTime)}s`);
+                            if (pCur.triggerRadius !== undefined) out.push(`触发范围：${fmt(pCur.triggerRadius)}`);
+                            if (pCur.aoeRadius !== undefined) out.push(`爆炸范围：${fmt(pCur.aoeRadius)}`);
+                            if (pCur.stunDuration !== undefined) out.push(`眩晕：${fmt(pCur.stunDuration)}s`);
+                            if (pCur.chainExplode) out.push(`效果：连环引爆`);
+                            if (pCur.leavePool) out.push(`效果：留下毒雾`);
+                            return out;
+                        },
+                        chain_lightning: () => {
+                            const out = [];
+                            out.push(`局内等级：1`);
+                            if (pCur.cooldown !== undefined) out.push(`冷却：${fmt(pCur.cooldown)}s`);
+                            if (pCur.dmg !== undefined) out.push(`单跳伤害：${fmt(pCur.dmg)}`);
+                            if (pCur.jumps !== undefined) out.push(`跳跃次数：${fmt(pCur.jumps)}`);
+                            if (pCur.range !== undefined) out.push(`射程：${fmt(pCur.range)}`);
+                            if (pCur.stun !== undefined) out.push(`眩晕：${fmt(pCur.stun)}s`);
+                            return out;
+                        },
+                        frost_nova: () => {
+                            const out = [];
+                            out.push(`局内等级：1`);
+                            if (pCur.cooldown !== undefined) out.push(`冷却：${fmt(pCur.cooldown)}s`);
+                            if (pCur.dmg !== undefined) out.push(`伤害：${fmt(pCur.dmg)}`);
+                            if (pCur.radius !== undefined) out.push(`范围：${fmt(pCur.radius)}`);
+                            if (pCur.freeze !== undefined) out.push(`冻结：${fmt(pCur.freeze)}s`);
+                            if (pCur.pulses !== undefined) out.push(`脉冲次数：${fmt(pCur.pulses)}`);
+                            if (pCur.shatterBonus !== undefined) out.push(`碎裂加成：${fmt(pCur.shatterBonus)}`);
+                            return out;
+                        },
+                        blade_storm: () => {
+                            const out = [];
+                            out.push(`局内等级：1`);
+                            if (pCur.cooldown !== undefined) out.push(`冷却：${fmt(pCur.cooldown)}s`);
+                            if (pCur.dmg !== undefined) out.push(`单刃伤害：${fmt(pCur.dmg)}`);
+                            if (pCur.blades !== undefined) out.push(`刀刃数量：${fmt(pCur.blades)}`);
+                            if (pCur.radius !== undefined) out.push(`范围：${fmt(pCur.radius)}`);
+                            if (pCur.speed !== undefined) out.push(`刀刃速度：${fmt(pCur.speed)}`);
+                            if (pCur.returnWave) out.push(`效果：回旋`);
+                            return out;
+                        },
+                        healing_totem: () => {
+                            const out = [];
+                            out.push(`局内等级：1`);
+                            if (pCur.cooldown !== undefined) out.push(`冷却：${fmt(pCur.cooldown)}s`);
+                            if (pCur.totems !== undefined) out.push(`图腾数量：${fmt(pCur.totems)}`);
+                            if (pCur.radius !== undefined) out.push(`范围：${fmt(pCur.radius)}`);
+                            if (pCur.duration !== undefined) out.push(`持续：${fmt(pCur.duration)}s`);
+                            if (pCur.heal !== undefined) out.push(`每跳治疗：${fmt(pCur.heal)}`);
+                            if (pCur.tickInterval !== undefined) out.push(`治疗间隔：${fmt(pCur.tickInterval)}s`);
+                            if (pCur.dmg !== undefined) out.push(`对敌伤害：${fmt(pCur.dmg)}`);
+                            if (pCur.followPlayer) out.push(`效果：随行`);
+                            return out;
+                        },
+                        meteor_strike: () => {
+                            const out = [];
+                            out.push(`局内等级：1`);
+                            if (pCur.cooldown !== undefined) out.push(`冷却：${fmt(pCur.cooldown)}s`);
+                            if (pCur.meteors !== undefined) out.push(`陨石数量：${fmt(pCur.meteors)}`);
+                            if (pCur.dmg !== undefined) out.push(`命中伤害：${fmt(pCur.dmg)}`);
+                            if (pCur.radius !== undefined) out.push(`范围：${fmt(pCur.radius)}`);
+                            if (pCur.delay !== undefined) out.push(`落点延迟：${fmt(pCur.delay)}s`);
+                            if (pCur.burnDps !== undefined) out.push(`燃烧DPS：${fmt(pCur.burnDps)}`);
+                            if (pCur.burnDur !== undefined) out.push(`燃烧持续：${fmt(pCur.burnDur)}s`);
+                            if (pCur.aftershock) out.push(`效果：余震`);
+                            return out;
+                        },
+                    };
 
-                    const dmg = pick(p, ['damage', 'dmg', 'dmgPerTick', 'burnDps']);
-                    if (dmg !== undefined) {
-                        const label = (p.dmgPerTick !== undefined) ? '每跳伤害' : ((p.burnDps !== undefined) ? '燃烧DPS' : '伤害');
-                        statsLines.push(`${label}：${fmt(dmg)}`);
+                    if (statusMap[sid]) {
+                        statsLines = statusMap[sid]().filter(Boolean);
+                    } else {
+                        // Fallback: generic extraction
+                        const cd = pick(p, ['cooldown']);
+                        if (cd !== undefined) statsLines.push(`冷却：${fmt(cd)}s`);
+
+                        const dmg = pick(p, ['damage', 'dmg', 'dmgPerTick', 'burnDps']);
+                        if (dmg !== undefined) {
+                            const label = (p.dmgPerTick !== undefined) ? '每跳伤害' : ((p.burnDps !== undefined) ? '燃烧DPS' : '伤害');
+                            statsLines.push(`${label}：${fmt(dmg)}`);
+                        }
+                        const heal = pick(p, ['heal']);
+                        if (heal !== undefined) statsLines.push(`治疗：${fmt(heal)}`);
+
+                        const radius = pick(p, ['radius', 'aoeRadius', 'triggerRadius']);
+                        if (radius !== undefined) statsLines.push(`范围：${fmt(radius)}`);
+                        const range = pick(p, ['range']);
+                        if (range !== undefined) statsLines.push(`射程：${fmt(range)}`);
+
+                        const dur = pick(p, ['duration', 'burnDur']);
+                        if (dur !== undefined) statsLines.push(`持续：${fmt(dur)}s`);
+                        const tick = pick(p, ['tickInterval']);
+                        if (tick !== undefined) statsLines.push(`间隔：${fmt(tick)}s`);
+
+                        // Quantity semantics
+                        const qtyPairs = [
+                            ['shots', '数量'],
+                            ['count', '数量'],
+                            ['jumps', '跳跃'],
+                            ['blades', '刀刃'],
+                            ['pulses', '脉冲'],
+                            ['totems', '图腾'],
+                            ['meteors', '陨石'],
+                            ['novas', '毒圈'],
+                        ];
+                        qtyPairs.forEach(([k, n]) => {
+                            if (p[k] !== undefined) statsLines.push(`${n}：${fmt(p[k])}`);
+                        });
                     }
-                    const heal = pick(p, ['heal']);
-                    if (heal !== undefined) statsLines.push(`治疗：${fmt(heal)}`);
 
-                    const radius = pick(p, ['radius', 'aoeRadius', 'triggerRadius']);
-                    if (radius !== undefined) statsLines.push(`范围：${fmt(radius)}`);
-                    const range = pick(p, ['range']);
-                    if (range !== undefined) statsLines.push(`射程：${fmt(range)}`);
+                    // Add meta summary (tier / qty bonus) for clarity
+                    if (m && m.level) {
+                        if (m.qBonus !== undefined) statsLines.push(`数量加成：+${fmt(m.qBonus)}`);
+                        if (m.tier !== undefined) statsLines.push(`机制档位：${fmt(m.tier)}`);
+                    }
 
-                    const dur = pick(p, ['duration', 'burnDur']);
-                    if (dur !== undefined) statsLines.push(`持续：${fmt(dur)}s`);
-                    const tick = pick(p, ['tickInterval']);
-                    if (tick !== undefined) statsLines.push(`间隔：${fmt(tick)}s`);
-
-                    // Quantity semantics
-                    const qtyPairs = [
-                        ['shots', '数量'],
-                        ['count', '数量'],
-                        ['jumps', '跳跃'],
-                        ['blades', '刀刃'],
-                        ['pulses', '脉冲'],
-                        ['totems', '图腾'],
-                        ['meteors', '陨石'],
-                        ['novas', '毒圈'],
-                    ];
-                    qtyPairs.forEach(([k, n]) => {
-                        if (p[k] !== undefined) statsLines.push(`${n}：${fmt(p[k])}`);
-                    });
+                    // Next-level preview a->b (semantic fields)
+                    const mkA2B = (label, a, b, unit = '') => {
+                        if (a === undefined && b === undefined) return;
+                        const fa = (typeof a === 'number') ? fmt(a) : String(a ?? '');
+                        const fb = (typeof b === 'number') ? fmt(b) : String(b ?? '');
+                        if (!fa && !fb) return;
+                        nextA2BLines.push(`${label}：${fa}${unit} → ${fb}${unit}`);
+                    };
+                    const pickQty = (obj) => {
+                        const keys = ['shots', 'count', 'jumps', 'blades', 'pulses', 'totems', 'meteors', 'novas'];
+                        for (const k of keys) if (obj[k] !== undefined) return { k, v: obj[k] };
+                        return null;
+                    };
+                    mkA2B('冷却', pCur.cooldown, pNxt.cooldown, 's');
+                    // Damage-ish
+                    const dmgCur = pick(pCur, ['damage', 'dmg', 'dmgPerTick', 'burnDps']);
+                    const dmgNxt = pick(pNxt, ['damage', 'dmg', 'dmgPerTick', 'burnDps']);
+                    if (dmgCur !== undefined || dmgNxt !== undefined) {
+                        const label = (pCur.dmgPerTick !== undefined || pNxt.dmgPerTick !== undefined) ? '每跳伤害' : ((pCur.burnDps !== undefined || pNxt.burnDps !== undefined) ? '燃烧DPS' : '伤害');
+                        mkA2B(label, dmgCur, dmgNxt, '');
+                    }
+                    mkA2B('范围', pick(pCur, ['radius', 'aoeRadius', 'triggerRadius']), pick(pNxt, ['radius', 'aoeRadius', 'triggerRadius']), '');
+                    mkA2B('射程', pCur.range, pNxt.range, '');
+                    mkA2B('持续', pick(pCur, ['duration', 'burnDur']), pick(pNxt, ['duration', 'burnDur']), 's');
+                    mkA2B('间隔', pCur.tickInterval, pNxt.tickInterval, 's');
+                    // Quantity (best effort)
+                    const qc = pickQty(pCur);
+                    const qn = pickQty(pNxt);
+                    if (qc || qn) {
+                        const labelMap = { shots: '数量', count: '数量', jumps: '跳跃次数', blades: '刀刃数量', pulses: '脉冲次数', totems: '图腾数量', meteors: '陨石数量', novas: '毒圈数量' };
+                        const key = (qc && qc.k) || (qn && qn.k);
+                        mkA2B(labelMap[key] || '数量', qc ? qc.v : undefined, qn ? qn.v : undefined, '');
+                    }
+                    // Meta tier/qty
+                    if (m && m.level) {
+                        mkA2B('数量加成', m.qBonus, m2.qBonus, '');
+                        mkA2B('机制档位', m.tier, m2.tier, '');
+                    }
+                    // Newly unlocked mechanism line
+                    if (m2 && m && (m2.tier || 0) > (m.tier || 0)) {
+                        const special = META_SKILL_SPECIAL[sid] || {};
+                        const line = (special.mech && special.mech[(m2.tier || 1) - 1]) ? special.mech[(m2.tier || 1) - 1] : `解锁机制 ${m2.tier}`;
+                        nextA2BLines.push(`新机制：${line}`);
+                    }
 
                     // Mechanism / milestone
                     if (m.tier) {
@@ -3171,9 +3471,9 @@ class Game {
                     if (lv >= 10) mechLines.push('通用强化：命中附加短暂减速');
                     if (lv >= 16) mechLines.push('通用强化：命中施加易伤（短暂）');
                     // Extra flags
-                    if (p.followPlayer) mechLines.push('效果：跟随自身');
-                    if (p.chainExplode) mechLines.push('效果：连环引爆');
-                    if (p.aftershock) mechLines.push('效果：余震');
+                    if (pCur.followPlayer) mechLines.push('效果：跟随自身');
+                    if (pCur.chainExplode) mechLines.push('效果：连环引爆');
+                    if (pCur.aftershock) mechLines.push('效果：余震');
                 } catch (_) { }
             }
             if (statsLines.length === 0) {
@@ -3199,7 +3499,7 @@ class Game {
 
                 <div class="panel-skill-block">
                     <div class="panel-skill-block-title">下一次提升</div>
-                    <div class="panel-skill-block-text">${safeHtml(nextDesc)}</div>
+                    <div class="panel-skill-block-text">${safeHtml((nextA2BLines && nextA2BLines.length > 0) ? nextA2BLines.join('\n') : nextDesc)}</div>
                     <div class="panel-skill-actions">
                         <button id="panel-skill-upgrade-btn" class="panel-primary-btn" ${canUp ? '' : 'disabled'}>
                             ${isMax ? '已满级' : (unlocked ? `升级（碎片 ${cost}）` : `解锁（碎片 ${cost}）`)}
@@ -3212,25 +3512,44 @@ class Game {
             const upBtn = document.getElementById('panel-skill-upgrade-btn');
             if (upBtn) {
                 upBtn.onclick = () => {
-                    const ok = sm.upgradeSkillLevel(sid);
-                    // Refresh counts + detail/list
-                    sm.updateUI();
-                    renderSkillsList();
-                    renderSkillDetail();
-                    if (ok) this.sfx?.play('purchase');
-                    else this.sfx?.play('close');
+                    (async () => {
+                        const ok = await openPanelConfirm({
+                            title: unlocked ? '确认升级？' : '确认解锁？',
+                            desc: `将消耗碎片 ${cost}。\n\n${(nextA2BLines && nextA2BLines.length > 0) ? nextA2BLines.slice(0, 8).join('\n') : nextDesc}`,
+                            confirmText: unlocked ? '确认升级' : '确认解锁',
+                            cancelText: '取消',
+                            danger: false
+                        });
+                        if (!ok) return;
+                        const done = sm.upgradeSkillLevel(sid);
+                        sm.updateUI();
+                        renderSkillsList();
+                        renderSkillDetail();
+                        if (done) this.sfx?.play('purchase');
+                        else this.sfx?.play('close');
+                    })();
                 };
             }
 
             const resetBtn = document.getElementById('panel-skill-reset-btn');
             if (resetBtn) {
                 resetBtn.onclick = () => {
-                    const refunded = sm.resetSingleSkillMeta(sid);
-                    sm.updateUI();
-                    renderSkillsList();
-                    renderSkillDetail();
-                    if (refunded > 0) this.sfx?.play('purchase');
-                    else this.sfx?.play('close');
+                    (async () => {
+                        const ok = await openPanelConfirm({
+                            title: '确认重置？',
+                            desc: `将重置该技能的局外等级，并返还碎片 ${spent}。\n此操作可随时再升级。`,
+                            confirmText: '确认重置',
+                            cancelText: '取消',
+                            danger: true
+                        });
+                        if (!ok) return;
+                        const refunded = sm.resetSingleSkillMeta(sid);
+                        sm.updateUI();
+                        renderSkillsList();
+                        renderSkillDetail();
+                        if (refunded > 0) this.sfx?.play('purchase');
+                        else this.sfx?.play('close');
+                    })();
                 };
             }
         };
