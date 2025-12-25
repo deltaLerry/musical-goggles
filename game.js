@@ -1450,6 +1450,10 @@ class SaveManager {
             gold: 0,
             gems: 0,
 
+            // Codex
+            codexMobs: {},   // { [mobType]: true }
+            codexBosses: {}, // { [bossId]: { seen?: true, defeated?: true } }
+
             // Stage progression
             unlockedStageMax: 1,
             lastSelectedStage: 1,
@@ -1490,6 +1494,8 @@ class SaveManager {
         if (typeof this.data.skillShards !== 'number') this.data.skillShards = 0;
         if (typeof this.data.gold !== 'number') this.data.gold = 0;
         if (typeof this.data.gems !== 'number') this.data.gems = 0;
+        if (!this.data.codexMobs || typeof this.data.codexMobs !== 'object') this.data.codexMobs = {};
+        if (!this.data.codexBosses || typeof this.data.codexBosses !== 'object') this.data.codexBosses = {};
         if (typeof this.data.unlockedStageMax !== 'number') this.data.unlockedStageMax = 1;
         if (typeof this.data.lastSelectedStage !== 'number') this.data.lastSelectedStage = 1;
         if (typeof this.data.lastSelectedDifficulty !== 'string') this.data.lastSelectedDifficulty = 'normal';
@@ -1650,6 +1656,35 @@ class SaveManager {
 
     // Back-compat: keep old API name for meta currency.
     addSkillShards(a) { this.data.skillShards = (this.data.skillShards || 0) + Math.max(0, Math.floor(a || 0)); this.save(); this.updateUI(); }
+
+    codexMarkMobSeen(type) {
+        const t = String(type || '');
+        if (!t) return;
+        if (!this.data.codexMobs || typeof this.data.codexMobs !== 'object') this.data.codexMobs = {};
+        if (this.data.codexMobs[t]) return;
+        this.data.codexMobs[t] = true;
+        this.save();
+    }
+
+    codexMarkBossSeen(id) {
+        const bid = String(id || '');
+        if (!bid) return;
+        if (!this.data.codexBosses || typeof this.data.codexBosses !== 'object') this.data.codexBosses = {};
+        if (!this.data.codexBosses[bid] || typeof this.data.codexBosses[bid] !== 'object') this.data.codexBosses[bid] = {};
+        if (this.data.codexBosses[bid].seen) return;
+        this.data.codexBosses[bid].seen = true;
+        this.save();
+    }
+
+    codexMarkBossDefeated(id) {
+        const bid = String(id || '');
+        if (!bid) return;
+        if (!this.data.codexBosses || typeof this.data.codexBosses !== 'object') this.data.codexBosses = {};
+        if (!this.data.codexBosses[bid] || typeof this.data.codexBosses[bid] !== 'object') this.data.codexBosses[bid] = {};
+        this.data.codexBosses[bid].seen = true;
+        this.data.codexBosses[bid].defeated = true;
+        this.save();
+    }
 
     isSkillUnlocked(skillId) {
         if (!skillId) return false;
@@ -2350,6 +2385,22 @@ class Enemy {
         this.game = game;
         this.type = config.type;
         this.markedForDeletion = false;
+
+        // Codex discovery (elite does NOT count as mob; boss tracked separately)
+        try {
+            const sm = game && game.saveManager ? game.saveManager : null;
+            if (sm) {
+                if (this.type === 'boss') {
+                    const bid = String(config.bossType || 'generic');
+                    if (typeof sm.codexMarkBossSeen === 'function') sm.codexMarkBossSeen(bid);
+                } else if (this.type !== 'elite') {
+                    const mt = String(this.type || '');
+                    if (mt) {
+                        if (typeof sm.codexMarkMobSeen === 'function') sm.codexMarkMobSeen(mt);
+                    }
+                }
+            }
+        } catch (_) { }
 
         // Special behaviors (optional)
         this.behavior = config.behavior || null; // 'kamikaze' | 'trail_poison' | 'blink' | null
@@ -3819,6 +3870,8 @@ class Game {
             stageSelect: '选择关卡',
             skills: '技能',
             skillDetail: '技能详情',
+            codex: '怪物图鉴',
+            codexDetail: '怪物详情',
         }[id] || '面板');
 
         const panelStack = [];
@@ -3826,6 +3879,12 @@ class Game {
 
         // Skills panel state + renderers
         let panelSelectedSkillId = null;
+        // Codex panel state
+        let panelCodexTab = 'mob'; // mob | boss
+        let panelSelectedCodex = null; // { kind:'mob'|'boss', id }
+        const panelCodexTabsEl = document.getElementById('panel-codex-tabs');
+        const panelCodexListEl = document.getElementById('panel-codex-list');
+        const panelCodexDetailEl = document.getElementById('panel-codex-detail');
         const panelSkillShardsEl = document.getElementById('panel-skill-shards');
         const panelSkillListEl = document.getElementById('panel-skill-list');
         const panelSkillDetailEl = document.getElementById('panel-skill-detail');
@@ -4547,6 +4606,214 @@ class Game {
             }
         };
 
+        // --- Codex renderers ---
+        const codexMobName = (t) => ({
+            basic: '基础怪',
+            runner: '迅捷怪',
+            tank: '坦克怪',
+            ranger: '远程怪',
+            splitter: '分裂怪',
+            mini: '小分裂体',
+            kamikaze: '自爆蜂',
+            healer: '治疗怪',
+            poisoner: '毒池怪',
+            shielded: '盾卫',
+            sniper: '狙击手',
+            warper: '闪现怪',
+            leaper: '跃袭兽',
+            blinder: '致盲飞镖手',
+            witch: '咒医',
+            assassin: '相位刺客',
+            splitter_big: '巨型分裂体',
+            brute: '蛮力巨怪',
+            mosquito: '沼泽蚊群',
+            spitter: '酸液喷吐者',
+        }[t] || String(t));
+
+        const codexMobMechanics = (cfg) => {
+            const out = [];
+            if (!cfg) return out;
+            if (cfg.isRanged) out.push(`远程攻击（射程 ${Math.floor(cfg.attackRange || 0)}）`);
+            if (cfg.behavior === 'blink') out.push(`闪现（冷却 ${cfg.blinkCd || 3.2}s）`);
+            if (cfg.leap) out.push(`跃击冲刺（冷却 ${cfg.leap.cooldown || 3.5}s）`);
+            if (cfg.behavior === 'trail_poison' && cfg.trail) out.push(`毒迹（持续伤害+区域封锁）`);
+            if (cfg.behavior === 'kamikaze' && cfg.explode) out.push(`自爆（爆炸范围 ${cfg.explode.radius || 110}）`);
+            if (cfg.split && cfg.split.count) out.push(`死亡分裂（分裂数量 ${cfg.split.count}）`);
+            if (cfg.aura) out.push(`治疗光环（范围 ${cfg.aura.radius || 180}）`);
+            if (cfg.dmgTakenMul !== undefined && cfg.dmgTakenMul < 1) out.push(`减伤（承伤倍率 ${cfg.dmgTakenMul}）`);
+            if (cfg.rangedProfile && cfg.rangedProfile.onHitSlow) out.push(`远程命中减速`);
+            if (cfg.rangedProfile && cfg.rangedProfile.onHitBlind) out.push(`远程命中致盲`);
+            return out;
+        };
+
+        const codexBossConfigAtStage = (id, stageN) => {
+            const s = Math.max(1, Math.floor(stageN || 1));
+            const bid = String(id || '');
+            if (bid === 'queen') return { type: 'boss', bossType: 'queen', hp: 820 + s * 150, speed: 78 + Math.min(36, s * 2), damage: 16 + s * 3, radius: 58, isRanged: false };
+            if (bid === 'toad') return { type: 'boss', bossType: 'toad', hp: 920 + s * 170, speed: 66 + Math.min(28, s * 2), damage: 18 + s * 3, radius: 62, isRanged: false };
+            if (bid === 'gunslinger') return { type: 'boss', bossType: 'gunslinger', hp: 760 + s * 140, speed: 72 + Math.min(32, s * 2), damage: 20 + s * 3, radius: 54, isRanged: true, attackRange: 520 };
+            if (bid === 'priest') return { type: 'boss', bossType: 'priest', hp: 980 + s * 180, speed: 62 + Math.min(26, s * 2), damage: 16 + s * 3, radius: 60, isRanged: false };
+            if (bid === 'reaper') return { type: 'boss', bossType: 'reaper', hp: 860 + s * 160, speed: 76 + Math.min(34, s * 2), damage: 18 + s * 3, radius: 60, isRanged: false };
+            if (bid === 'warden') return { type: 'boss', bossType: 'warden', hp: 1040 + s * 200, speed: 60 + Math.min(22, s * 1.6), damage: 22 + s * 3, radius: 66, isRanged: false };
+            if (bid === 'alchemist') return { type: 'boss', bossType: 'alchemist', hp: 860 + s * 165, speed: 74 + Math.min(32, s * 1.8), damage: 16 + s * 3, radius: 58, isRanged: false };
+            if (bid === 'storm') return { type: 'boss', bossType: 'storm', hp: 900 + s * 175, speed: 78 + Math.min(36, s * 2), damage: 18 + s * 3, radius: 60, isRanged: true, attackRange: 560 };
+            if (bid === 'crusher') return { type: 'boss', bossType: 'crusher', hp: 1180 + s * 220, speed: 58 + Math.min(20, s * 1.4), damage: 24 + s * 3, radius: 72, isRanged: false };
+            if (bid === 'chronomancer') return { type: 'boss', bossType: 'chronomancer', hp: 940 + s * 185, speed: 76 + Math.min(34, s * 2), damage: 18 + s * 3, radius: 60, isRanged: true, attackRange: 560 };
+            return { type: 'boss', bossType: bid, hp: 800 + s * 150, speed: 70, damage: 18, radius: 60, isRanged: false };
+        };
+
+        const codexBossMechanics = (id) => {
+            const bid = String(id || '');
+            const map = {
+                queen: ['召唤自爆蜂', '冲锋加速'],
+                toad: ['吐毒池（锁定玩家位置）', '跃击落毒'],
+                gunslinger: ['扇形齐射', '闪现换位'],
+                priest: ['护盾相位（减伤）', '自愈', '召唤治疗怪'],
+                reaper: ['虚空领域（减速）', '召唤幽影/闪现怪', '闪现突进'],
+                warden: ['重击震荡（近身AoE）', '召唤盾卫援军'],
+                alchemist: ['投掷毒瓶（减速）', '扩散毒雾', '召唤毒池怪'],
+                storm: ['电弧射击（减速）', '落雷预警（延迟打击）'],
+                crusher: ['蓄力冲锋', '震荡波', '碎石覆盖逼走位'],
+                chronomancer: ['减速领域', '闪现', '回溯自愈（低血）'],
+            };
+            return map[bid] || [];
+        };
+
+        const renderCodexTabs = () => {
+            if (!panelCodexTabsEl) return;
+            const tabs = [
+                { id: 'mob', label: '小怪' },
+                { id: 'boss', label: 'Boss' },
+            ];
+            panelCodexTabsEl.innerHTML = tabs.map(t => {
+                const act = (panelCodexTab === t.id) ? 'active' : '';
+                return `<button class="panel-tab ${act}" data-codex-tab="${safeHtml(t.id)}">${safeHtml(t.label)}</button>`;
+            }).join('');
+            panelCodexTabsEl.querySelectorAll('button[data-codex-tab]').forEach(btn => {
+                btn.onclick = () => {
+                    panelCodexTab = btn.getAttribute('data-codex-tab') || 'mob';
+                    renderCodexList();
+                };
+            });
+        };
+
+        const renderCodexList = () => {
+            if (!panelCodexListEl || !this.saveManager) return;
+            const sm = this.saveManager;
+            renderCodexTabs();
+
+            if (panelCodexTab === 'boss') {
+                const bosses = this.getBossArchetypesMeta ? this.getBossArchetypesMeta() : [];
+                panelCodexListEl.innerHTML = bosses.map(b => {
+                    const st = (sm.data.codexBosses && sm.data.codexBosses[b.id]) ? sm.data.codexBosses[b.id] : {};
+                    const seen = !!st.seen;
+                    const defeated = !!st.defeated;
+                    const locked = !seen;
+                    const badge = defeated ? '已击败' : (seen ? '已遇见' : '未解锁');
+                    return `
+                        <button class="panel-codex-card ${locked ? 'locked' : ''}" data-nav="codexDetail" data-codex-kind="boss" data-codex-id="${safeHtml(b.id)}">
+                            <div>
+                                <div class="panel-codex-name">${safeHtml(b.name || b.id)}</div>
+                                <div class="panel-codex-sub">${safeHtml(b.hint || '')}</div>
+                            </div>
+                            <div class="panel-codex-right">
+                                <span class="panel-codex-badge">${safeHtml(badge)}</span>
+                            </div>
+                        </button>
+                    `;
+                }).join('');
+                return;
+            }
+
+            // mobs (exclude elite/boss)
+            const cfgs = this.getStageEnemyConfigs ? this.getStageEnemyConfigs(1) : {};
+            const ids = Object.keys(cfgs || {}).filter(k => k && k !== 'elite' && k !== 'boss');
+            ids.sort((a, b) => codexMobName(a).localeCompare(codexMobName(b), 'zh-CN'));
+            panelCodexListEl.innerHTML = ids.map(id => {
+                const unlocked = !!(sm.data.codexMobs && sm.data.codexMobs[id]);
+                const badge = unlocked ? '已解锁' : '未解锁';
+                return `
+                    <button class="panel-codex-card ${unlocked ? '' : 'locked'}" data-nav="codexDetail" data-codex-kind="mob" data-codex-id="${safeHtml(id)}">
+                        <div>
+                            <div class="panel-codex-name">${safeHtml(codexMobName(id))}</div>
+                            <div class="panel-codex-sub">${unlocked ? '已在关卡中遭遇' : '提示：在关卡中首次遭遇后解锁'}</div>
+                        </div>
+                        <div class="panel-codex-right">
+                            <span class="panel-codex-badge">${safeHtml(badge)}</span>
+                        </div>
+                    </button>
+                `;
+            }).join('');
+        };
+
+        const renderCodexDetail = () => {
+            if (!panelCodexDetailEl || !this.saveManager || !panelSelectedCodex) return;
+            const sm = this.saveManager;
+            const kind = panelSelectedCodex.kind;
+            const id = panelSelectedCodex.id;
+
+            if (kind === 'boss') {
+                const meta = (this.getBossArchetypesMeta ? (this.getBossArchetypesMeta().find(x => x.id === id) || null) : null);
+                const st = (sm.data.codexBosses && sm.data.codexBosses[id]) ? sm.data.codexBosses[id] : {};
+                const seen = !!st.seen;
+                const defeated = !!st.defeated;
+                const firstStage = (this.getAllStagesMeta ? ((this.getAllStagesMeta().find(s => s.bossId === id) || {}).id || 3) : 3);
+                const cfg = codexBossConfigAtStage(id, firstStage);
+                const locked = !seen;
+                const mechanics = codexBossMechanics(id);
+                panelCodexDetailEl.innerHTML = `
+                    <div class="panel-card">
+                        <div class="panel-card-title">${safeHtml(meta ? meta.name : id)}</div>
+                        <div class="panel-card-desc">${safeHtml(meta ? meta.hint : '')}</div>
+                        <div class="panel-card-desc">解锁状态：<b>${locked ? '未解锁' : (defeated ? '已击败' : '已遇见')}</b></div>
+                        ${locked ? `<div class="panel-note">提示：在 Boss 关首次遭遇该 Boss 后解锁；击败会标记“已击败”。</div>` : ''}
+                    </div>
+                    <div class="panel-card">
+                        <div class="panel-card-title">数值（按首次登场：第 ${safeHtml(firstStage)} 关）</div>
+                        <div class="panel-inline-kv"><span>攻击</span><span class="v">${locked ? '？？' : safeHtml(Math.floor(cfg.damage || 0))}</span></div>
+                        <div class="panel-inline-kv"><span>防御(生命)</span><span class="v">${locked ? '？？' : safeHtml(Math.floor(cfg.hp || 0))}</span></div>
+                        <div class="panel-inline-kv"><span>移速</span><span class="v">${locked ? '？？' : safeHtml(Math.floor(cfg.speed || 0))}</span></div>
+                        <div class="panel-inline-kv"><span>体型</span><span class="v">${locked ? '？？' : safeHtml(Math.floor(cfg.radius || 0))}</span></div>
+                    </div>
+                    <div class="panel-card">
+                        <div class="panel-card-title">机制 / 技能</div>
+                        <div class="panel-card-desc">${locked ? '？？（未解锁）' : safeHtml((mechanics && mechanics.length) ? mechanics.join('、') : '—')}</div>
+                        <div class="panel-note">说明：Boss 弱化后可作为精英怪在后续关卡稀有出现，但精英不计入“小怪图鉴”。</div>
+                    </div>
+                `;
+                return;
+            }
+
+            // mob detail
+            const cfgs = this.getStageEnemyConfigs ? this.getStageEnemyConfigs(1) : {};
+            const cfg = cfgs ? cfgs[id] : null;
+            const unlocked = !!(sm.data.codexMobs && sm.data.codexMobs[id]);
+            const locked = !unlocked;
+            const mech = codexMobMechanics(cfg);
+            const hp = cfg ? Math.floor(cfg.hp || 0) : 0;
+            const dmg = cfg ? Math.floor(cfg.damage || 0) : 0;
+            const spd = cfg ? Math.floor(cfg.speed || 0) : 0;
+            const dr = (cfg && cfg.dmgTakenMul !== undefined) ? cfg.dmgTakenMul : 1;
+            panelCodexDetailEl.innerHTML = `
+                <div class="panel-card">
+                    <div class="panel-card-title">${safeHtml(codexMobName(id))}</div>
+                    <div class="panel-card-desc">解锁状态：<b>${locked ? '未解锁' : '已解锁'}</b></div>
+                    ${locked ? `<div class="panel-note">提示：在关卡中首次遭遇该怪物后解锁。</div>` : ''}
+                </div>
+                <div class="panel-card">
+                    <div class="panel-card-title">数值（基础模板）</div>
+                    <div class="panel-inline-kv"><span>攻击</span><span class="v">${locked ? '？？' : safeHtml(dmg)}</span></div>
+                    <div class="panel-inline-kv"><span>防御(生命)</span><span class="v">${locked ? '？？' : safeHtml(hp)}</span></div>
+                    <div class="panel-inline-kv"><span>承伤倍率</span><span class="v">${locked ? '？？' : safeHtml(String(dr))}</span></div>
+                    <div class="panel-inline-kv"><span>移速</span><span class="v">${locked ? '？？' : safeHtml(spd)}</span></div>
+                </div>
+                <div class="panel-card">
+                    <div class="panel-card-title">机制 / 技能</div>
+                    <div class="panel-card-desc">${locked ? '？？（未解锁）' : safeHtml((mech && mech.length) ? mech.join('、') : '—')}</div>
+                </div>
+            `;
+        };
+
         const renderStatusView = () => {
             const root = document.getElementById('panel-status-root');
             if (!root) return;
@@ -4662,18 +4929,18 @@ class Game {
                 panelCrumbs.innerText = out.join(' > ');
             }
 
-            // Header resources: only show shards pill on pages that truly need it
-            const shardsPill = document.querySelector('.panel-header .panel-shards-pill');
-            if (shardsPill) {
-                const need = (cur === 'skills' || cur === 'skillDetail');
-                shardsPill.style.display = need ? '' : 'none';
-            }
+            // Header resources: keep all currencies visible for consistency.
+            document.querySelectorAll('.panel-header .panel-shards-pill').forEach(p => {
+                p.style.display = '';
+            });
 
             // When panel shows skills views, render content
             if (cur === 'skills') renderSkillsList();
             if (cur === 'skillDetail') renderSkillDetail();
             if (cur === 'settings') renderSettingsView();
             if (cur === 'status') renderStatusView();
+            if (cur === 'codex') renderCodexList();
+            if (cur === 'codexDetail') renderCodexDetail();
             if (cur === 'stageSelect') {
                 // Keep stage select UI in sync when opened in panel
                 try { this.saveManager?.updateUI(); } catch (_) { }
@@ -4773,6 +5040,9 @@ class Game {
                 if (!to) return;
                 const sid = btn.getAttribute('data-skill');
                 if (sid) panelSelectedSkillId = sid;
+                const ck = btn.getAttribute('data-codex-kind');
+                const cid = btn.getAttribute('data-codex-id');
+                if (ck && cid) panelSelectedCodex = { kind: ck, id: cid };
                 // Push new view
                 panelStack.push(to);
                 syncPanelUI();
@@ -4789,6 +5059,8 @@ class Game {
         // Skills icon -> open skills panel (unified UX)
         const skillsBtn = document.getElementById('shop-btn');
         if (skillsBtn) skillsBtn.onclick = () => { this.sfx.play('open'); openPanel('skills'); };
+        const codexBtn = document.getElementById('hub-codex-btn');
+        if (codexBtn) codexBtn.onclick = () => { this.sfx.play('open'); openPanel('codex'); };
 
         const resetBtn = document.getElementById('skill-upgrade-reset-btn');
         if (resetBtn) {
@@ -5584,9 +5856,9 @@ class Game {
         if (lobby) lobby.classList.add('hidden');
         document.getElementById('game-container').classList.remove('hidden');
 
-        // 每关波数/时长：把“单关体验”拉到接近 15 分钟（更符合“每天玩一关”的节奏）
-        // 约 30*24=720s（12 分钟）+ Boss 战与结算 ≈ 14~16 分钟
-        this.wavesTotal = 30;
+        // 每关波数：普通关 12 波；Boss 关 15 波（给成长空间）
+        // waveDuration 保持不变，整体节奏更紧凑。
+        this.wavesTotal = 12;
         this.waveDuration = 24;
 
         // 新轮回开始：清空精英池（精英池只在本次轮回内累计）
@@ -5603,6 +5875,8 @@ class Game {
     // 每一关开始时：重置玩家等级/经验/技能/本关装备（保留天赋与传家宝）
     startStage(stageNumber, opts = {}) {
         this.stage = Math.max(1, stageNumber || 1);
+        // Boss stage gets more waves for growth time.
+        this.wavesTotal = this.getBossForStage(this.stage) ? 15 : 12;
         this.wave = 1;
         this.gameTime = 0;
         this.waveTimer = 0;
@@ -6255,7 +6529,8 @@ class Game {
         const arr = this.enemies || [];
         const n = arr.length;
         if (n < 2) return;
-        const cellSize = 60;
+        // Larger buckets => fewer "tight clusters"
+        const cellSize = 90;
         const buckets = new Map();
         const keyOf = (cx, cy) => `${cx},${cy}`;
         for (let i = 0; i < n; i++) {
@@ -6269,7 +6544,9 @@ class Game {
             b.push(i);
         }
 
-        const maxPush = Math.max(0.6, 140 * (dt || 0.016));
+        // Stronger separation to avoid "tadpole swarm" feeling.
+        const maxPush = Math.max(0.8, 260 * (dt || 0.016));
+        const spacingMul = 1.35; // >1 means keep a bit of personal space
         for (let i = 0; i < n; i++) {
             const a = arr[i];
             if (!a) continue;
@@ -6287,6 +6564,7 @@ class Game {
                         const dx = b.x - a.x;
                         const dy = b.y - a.y;
                         const r = (a.radius || 0) + (b.radius || 0);
+                        const rr = r * spacingMul;
                         const d2 = dx * dx + dy * dy;
                         if (d2 <= 0.0001) {
                             // 完全重叠：随机给一点分离方向
@@ -6298,11 +6576,11 @@ class Game {
                             continue;
                         }
                         const d = Math.sqrt(d2);
-                        if (d >= r) continue;
-                        const overlap = r - d;
+                        if (d >= rr) continue;
+                        const overlap = rr - d;
                         const nx = dx / d;
                         const ny = dy / d;
-                        const push = Math.min(maxPush, overlap * 0.55);
+                        const push = Math.min(maxPush, overlap * 0.85);
                         a.x -= nx * push; a.y -= ny * push;
                         b.x += nx * push; b.y += ny * push;
                     }
@@ -6572,10 +6850,11 @@ class Game {
         const dps = (p.damage / Math.max(0.12, p.attackCooldown));
         const power = (p.level * 0.7) + (dps / 60) + (p.maxHp / 200);
         // Hard cap to avoid performance issues
-        const base = Math.max(40, Math.min(100, Math.floor(40 + power * 7)));
+        // Lower cap to reduce on-screen clustering pressure.
+        const base = Math.max(32, Math.min(84, Math.floor(34 + power * 6)));
         const diff = this.getDifficulty ? this.getDifficulty() : { id: 'normal' };
         const mul = (diff && diff.id === 'easy') ? 0.92 : ((diff && diff.id === 'hell') ? 1.06 : 1.0);
-        return Math.max(35, Math.min(120, Math.floor(base * mul)));
+        return Math.max(28, Math.min(88, Math.floor(base * mul)));
     }
 
     getDifficultyFactor() {
@@ -6767,6 +7046,11 @@ class Game {
         this.bossRef = null;
         document.getElementById('boss-hp-container').classList.add('hidden');
         this.registerEliteFromBoss(boss);
+        // Codex: boss is considered unlocked once defeated
+        try {
+            const bid = boss && boss.bossType ? String(boss.bossType) : '';
+            if (bid && this.saveManager && typeof this.saveManager.codexMarkBossDefeated === 'function') this.saveManager.codexMarkBossDefeated(bid);
+        } catch (_) { }
 
         // 记录本关本难度已通关（用于难度逐级解锁）
         if (this.saveManager && typeof this.saveManager.markStageDifficultyCleared === 'function') {

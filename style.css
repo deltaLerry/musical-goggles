@@ -758,6 +758,48 @@ body {
     user-select: none;
     transition: background 0.12s ease, border-color 0.12s ease, transform 0.12s ease;
 }
+
+/* Codex */
+.panel-codex-card {
+    width: 100%;
+    text-align: left;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.06);
+    border-radius: 14px;
+    padding: 12px 12px;
+    margin: 10px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+}
+.panel-codex-card.locked {
+    opacity: 0.55;
+    filter: grayscale(0.35);
+}
+.panel-codex-name {
+    font-weight: 700;
+    letter-spacing: 0.2px;
+}
+.panel-codex-sub {
+    font-size: 12px;
+    opacity: 0.78;
+    margin-top: 4px;
+}
+.panel-codex-right {
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+    flex: 0 0 auto;
+}
+.panel-codex-badge {
+    font-size: 12px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.14);
+    background: rgba(0,0,0,0.16);
+}
 .panel-tab:hover { background: rgba(255,255,255,0.10); border-color: rgba(255,215,0,0.22); transform: translateY(-1px); }
 .panel-tab.active { background: rgba(255,215,0,0.12); border-color: rgba(255,215,0,0.40); color: #fff; }
 .panel-tab .badge { margin-left: 6px; opacity: 0.75; font-weight: 1000; }

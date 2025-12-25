@@ -72,6 +72,10 @@
                         <span class="hub-icon-emoji">✨</span>
                         <span class="hub-icon-text">技能</span>
                     </button>
+                    <button id="hub-codex-btn" class="hub-icon-btn" title="怪物图鉴">
+                        <span class="hub-icon-emoji">📖</span>
+                        <span class="hub-icon-text">图鉴</span>
+                    </button>
                     <button id="hub-store-btn" class="hub-icon-btn" disabled title="商店（敬请期待）">
                         <span class="hub-icon-emoji">🏪</span>
                         <span class="hub-icon-text">商店</span>
@@ -256,6 +260,18 @@
                 <!-- Skill Detail -->
                 <section class="panel-view" data-view="skillDetail">
                     <div id="panel-skill-detail" class="panel-skill-detail"></div>
+                </section>
+
+                <!-- Codex -->
+                <section class="panel-view" data-view="codex">
+                    <div class="panel-section-title">怪物图鉴</div>
+                    <div class="panel-tabs" id="panel-codex-tabs" aria-label="图鉴分类"></div>
+                    <div id="panel-codex-list" class="panel-list"></div>
+                </section>
+
+                <!-- Codex Detail -->
+                <section class="panel-view" data-view="codexDetail">
+                    <div id="panel-codex-detail" class="panel-list"></div>
                 </section>
             </div>
         </div>
