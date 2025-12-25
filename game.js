@@ -5194,7 +5194,7 @@ class Game {
                 badge.innerText = '已解锁';
             } else {
                 badge.classList.add('locked');
-                badge.innerText = `未解锁（通关至第 ${unlockedMax} 关）`;
+                badge.innerText = `未解锁`;
             }
         }
 
