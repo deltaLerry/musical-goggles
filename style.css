@@ -2015,10 +2015,10 @@ button:hover { background: #45a049; }
     .hub-portrait {
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: 14px;
         flex: 1 1 auto;
         min-height: 0;
-        padding: 8px 2px 10px 2px;
+        padding: 10px 10px 0 10px;
     }
     .hub-row { width: 100%; }
     /* Top row: avatar left + resources right (less "割裂") */
@@ -2027,7 +2027,7 @@ button:hover { background: #45a049; }
         align-items: center;
         justify-content: space-between;
         gap: 10px;
-        padding: 6px 2px;
+        padding: 0;
         border-radius: 0;
         background: transparent;
         border: none;
@@ -2037,8 +2037,10 @@ button:hover { background: #45a049; }
         flex: 0 0 auto;
         padding: 6px 8px;
         border-radius: 14px;
-        background: transparent;
-        border: 1px solid rgba(255,255,255,0.10);
+        background: rgba(0,0,0,0.18);
+        border: 1px solid rgba(255,255,255,0.08);
+        box-shadow: 0 10px 26px rgba(0,0,0,0.25);
+        backdrop-filter: blur(6px);
         display: inline-flex;
         flex-direction: row;
         align-items: center;
@@ -2056,11 +2058,19 @@ button:hover { background: #45a049; }
         flex: 1 1 auto;
         min-width: 0;
     }
-    .hub-row-top .hub-pill { font-size: 12px; padding: 7px 10px; }
+    .hub-row-top .hub-pill {
+        font-size: 12px;
+        padding: 7px 10px;
+        border: 1px solid rgba(255,255,255,0.08);
+        background: rgba(0,0,0,0.16);
+        box-shadow: 0 10px 26px rgba(0,0,0,0.22);
+        backdrop-filter: blur(6px);
+    }
+    .hub-row-top .hub-pill-label { display: none; }
     .hub-row-stage { flex: 1 1 auto; display: flex; align-items: center; }
     .hub-stage-card {
         border-radius: 18px;
-        border: 1px solid rgba(255,255,255,0.10);
+        border: 1px solid rgba(255,255,255,0.08);
         box-shadow: none;
         background: radial-gradient(circle at 25% 20%, rgba(255, 215, 64, 0.10) 0%, rgba(0,0,0,0.0) 55%),
                     rgba(0,0,0,0.22);
@@ -2091,10 +2101,13 @@ button:hover { background: #45a049; }
         display: grid;
         grid-template-columns: repeat(4, 1fr);
         gap: 10px;
-        padding: 0;
-        border-radius: 0;
-        background: transparent;
-        border: none;
+        padding: 10px 10px calc(10px + var(--safe-bottom)) 10px;
+        border-radius: 18px 18px 0 0;
+        background: rgba(0,0,0,0.22);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-bottom: none;
+        box-shadow: 0 -14px 40px rgba(0,0,0,0.35);
+        backdrop-filter: blur(8px);
         margin-top: auto;
     }
     .hub-icon-btn {
@@ -2102,9 +2115,14 @@ button:hover { background: #45a049; }
         border-radius: 16px;
         padding: 10px 8px;
         height: 78px;
-        background: rgba(0,0,0,0.22);
-        border-color: rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.10);
+        box-shadow: 0 10px 22px rgba(0,0,0,0.22);
+        transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease, filter 0.12s ease;
     }
+    .hub-icon-btn:active { transform: translateY(0) scale(0.98); filter: brightness(1.05); }
+    .hub-avatar-btn.compact:active,
+    .hub-row-top .hub-pill:active { transform: translateY(0) scale(0.99); }
 
     /* Panel sheet: bottom-up drawer feels native in portrait */
     .panel-sheet {
