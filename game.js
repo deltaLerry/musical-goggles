@@ -2952,10 +2952,131 @@ class Game {
         this.saveManager.onAddHeirloom = () => { this.sfx.play('loot'); };
         this.saveManager.updateUI();
 
+        // Splash -> enter hub (also counts as a user gesture for audio)
+        const splash = document.getElementById('splash-screen');
+        if (splash) {
+            splash.onclick = () => {
+                splash.classList.add('hidden');
+                document.getElementById('main-menu').classList.remove('hidden');
+                this.saveManager.updateUI();
+                this.sfx?.play('toggleOn');
+            };
+        } else {
+            // Fallback: if no splash, ensure hub is visible
+            document.getElementById('main-menu').classList.remove('hidden');
+        }
+
         document.getElementById('start-game-btn').onclick = () => { this.sfx.play('start'); this.openStageSelect(); };
         document.getElementById('shop-btn').onclick = () => { this.sfx.play('open'); this.openShop(); };
         document.getElementById('shop-back-btn').onclick = () => { this.sfx.play('close'); this.closeShop(); };
         document.getElementById('start-bonus-confirm-btn').onclick = () => { this.sfx.play('start'); this.startGame(); };
+
+        // Secondary panel (profile / activities / mail) with swipeable carousel
+        const panel = document.getElementById('secondary-panel');
+        const panelBackdrop = document.getElementById('panel-backdrop');
+        const panelClose = document.getElementById('panel-close-btn');
+        const panelBackBtn = document.getElementById('panel-back-btn');
+        const panelCrumbs = document.getElementById('panel-crumbs');
+        const viewsEl = document.getElementById('panel-views');
+
+        const viewTitle = (id) => ({
+            root: '面板',
+            profile: '个人信息',
+            bag: '背包',
+            equip: '装备',
+            activities: '活动',
+            mail: '邮件 / 公告',
+        }[id] || '面板');
+
+        const panelStack = [];
+        const getViews = () => viewsEl ? Array.from(viewsEl.querySelectorAll('.panel-view')) : [];
+
+        const syncPanelUI = () => {
+            if (!viewsEl) return;
+            const views = getViews();
+            const cur = panelStack[panelStack.length - 1] || 'root';
+            const prev = (panelStack.length >= 2) ? panelStack[panelStack.length - 2] : null;
+
+            views.forEach(v => {
+                const id = v.getAttribute('data-view') || '';
+                v.classList.remove('active', 'under');
+                if (id === cur) v.classList.add('active');
+                else if (prev && id === prev) v.classList.add('under');
+            });
+
+            if (panelBackBtn) {
+                if (panelStack.length > 1) panelBackBtn.classList.remove('hidden');
+                else panelBackBtn.classList.add('hidden');
+            }
+            if (panelCrumbs) {
+                const parts = ['大厅', '面板'];
+                panelStack.forEach((id, i) => {
+                    if (i === 0 && id === 'root') return;
+                    parts.push(viewTitle(id));
+                });
+                // 去重（root 可能重复映射）
+                const out = [];
+                parts.forEach(p => { if (out.length === 0 || out[out.length - 1] !== p) out.push(p); });
+                panelCrumbs.innerText = out.join(' > ');
+            }
+        };
+
+        const openPanel = (toViewId = 'root') => {
+            if (!panel || !viewsEl) return;
+            panel.classList.remove('hidden');
+            panel.setAttribute('aria-hidden', 'false');
+            panelStack.length = 0;
+            panelStack.push('root');
+            if (toViewId && toViewId !== 'root') panelStack.push(toViewId);
+            syncPanelUI();
+        };
+
+        const closePanel = () => {
+            if (!panel) return;
+            panel.classList.add('hidden');
+            panel.setAttribute('aria-hidden', 'true');
+            panelStack.length = 0;
+        };
+
+        const canGoBack = () => panelStack.length > 1;
+        const goBack = () => {
+            if (!canGoBack()) return;
+            panelStack.pop();
+            syncPanelUI();
+        };
+
+        if (panelBackdrop) panelBackdrop.onclick = closePanel;
+        if (panelClose) panelClose.onclick = closePanel;
+        if (panelBackBtn) panelBackBtn.onclick = goBack;
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                if (panel && !panel.classList.contains('hidden')) {
+                    if (canGoBack()) goBack();
+                    else closePanel();
+                }
+            }
+        });
+
+        // In-panel navigation (stack push)
+        if (viewsEl) {
+            viewsEl.addEventListener('click', (ev) => {
+                const t = ev.target;
+                if (!t || typeof t.closest !== 'function') return;
+                const btn = t.closest('[data-nav]');
+                if (!btn) return;
+                const to = btn.getAttribute('data-nav');
+                if (!to) return;
+                // Push new view
+                panelStack.push(to);
+                syncPanelUI();
+            });
+        }
+
+        const profileBtn = document.getElementById('hub-profile-btn');
+        if (profileBtn) profileBtn.onclick = () => { this.sfx.play('open'); openPanel('profile'); };
+        const activityBtn = document.getElementById('hub-mail-btn');
+        if (activityBtn) activityBtn.onclick = () => { this.sfx.play('open'); openPanel('activities'); };
 
         const resetBtn = document.getElementById('skill-upgrade-reset-btn');
         if (resetBtn) {

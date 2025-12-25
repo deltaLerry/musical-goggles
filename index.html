@@ -10,70 +10,236 @@
     <!-- Damage Overlay -->
     <div id="damage-overlay"></div>
 
-    <!-- Main Menu -->
-    <div id="main-menu">
-        <div class="hub-wrap">
-            <div class="hub-hero">
-                <div class="hub-title">提莫快跑</div>
-                <div class="hub-subtitle">轮回 · 传承</div>
+    <!-- Splash / Loading Screen -->
+    <div id="splash-screen">
+        <div class="splash-inner">
+            <div class="splash-title">提莫快跑</div>
+            <div class="splash-subtitle">轮回 · 传承</div>
+            <div class="splash-tip">点击进入</div>
+        </div>
+    </div>
 
-                <div class="hub-stats">
-                    <div class="hub-stat">
-                        <div class="hub-stat-label">技能碎片</div>
-                        <div class="hub-stat-value"><span id="meta-skill-shards">0</span></div>
+    <!-- Main Menu -->
+    <div id="main-menu" class="hidden">
+        <div class="hub-wrap stage-focus">
+            <div class="hub-shell">
+                <!-- Left sidebar -->
+                <div class="hub-side left" aria-label="左侧功能栏">
+                    <button id="hub-profile-btn" class="hub-avatar-btn" title="个人信息">
+                        <div class="hub-avatar-ring">
+                            <div class="hub-avatar">👤</div>
+                        </div>
+                        <div class="hub-avatar-name">玩家</div>
+                    </button>
+                    <div class="hub-side-stack">
+                        <button id="shop-btn" class="hub-icon-btn" title="技能成长（局外升级/传承）">
+                            <span class="hub-icon-emoji">✨</span>
+                            <span class="hub-icon-text">技能</span>
+                        </button>
                     </div>
-                    <div class="hub-stat">
-                        <div class="hub-stat-label">已解锁关卡</div>
-                        <div class="hub-stat-value">第 <span id="hub-unlocked-stage">1</span> 关</div>
+                </div>
+
+                <!-- Center -->
+                <div class="hub-center">
+                    <div class="hub-topbar">
+                        <div class="hub-top-stats">
+                            <div class="hub-pill" title="技能碎片">
+                                <span class="hub-pill-icon">💠</span>
+                                <span class="hub-pill-label">碎片</span>
+                                <span class="hub-pill-value" id="meta-skill-shards">0</span>
+                            </div>
+                            <div class="hub-pill" title="已解锁关卡">
+                                <span class="hub-pill-icon">🔓</span>
+                                <span class="hub-pill-label">解锁</span>
+                                <span class="hub-pill-value">第 <span id="hub-unlocked-stage">1</span> 关</span>
+                            </div>
+                        </div>
                     </div>
-                    <div class="hub-stat">
-                        <div class="hub-stat-label">上次选择</div>
-                        <div class="hub-stat-value">第 <span id="hub-last-stage">1</span> 关 · <span id="hub-last-diff">中级</span></div>
+
+                    <div class="hub-stage-card">
+                        <div class="hub-stage-header">
+                            <div class="hub-stage-kicker">主线 · 进入关卡</div>
+                            <div class="hub-stage-meta">
+                                <div class="hub-stage-line">上次：第 <span id="hub-last-stage">1</span> 关 · <span id="hub-last-diff">中级</span></div>
+                                <div class="hub-stage-line dim">建议：先打关卡获取碎片，用于局外技能成长</div>
+                            </div>
+                        </div>
+
+                        <div class="hub-stage-cta">
+                            <button id="start-game-btn" class="stage-orb-btn" aria-label="选择关卡">进入关卡</button>
+                            <div class="stage-orb-hint">选关界面将自动定位到上次选择，可随时调整难度 / Boss / 掉落预览</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right sidebar -->
+                <div class="hub-side right" aria-label="右侧功能栏">
+                    <div class="hub-side-stack">
+                        <button id="hub-store-btn" class="hub-icon-btn" disabled title="即将加入：商店系统">
+                            <span class="hub-icon-emoji">🏪</span>
+                            <span class="hub-icon-text">商店</span>
+                        </button>
+
+                        <button id="hub-settings-btn" class="hub-icon-btn" disabled title="即将加入：设置/选项">
+                            <span class="hub-icon-emoji">⚙</span>
+                            <span class="hub-icon-text">设置</span>
+                        </button>
+
+                        <button id="hub-mail-btn" class="hub-icon-btn" title="活动">
+                            <span class="hub-icon-emoji">📮</span>
+                            <span class="hub-icon-text">活动</span>
+                        </button>
                     </div>
                 </div>
             </div>
 
-            <div class="hub-grid" role="navigation" aria-label="大厅入口">
-                <button id="start-game-btn" class="hub-tile">
-                    <div class="hub-icon">🗺</div>
-                    <div class="hub-name">进入关卡</div>
-                    <div class="hub-desc">选关 / 难度 / Boss 掉落预览</div>
-                </button>
-
-                <button id="shop-btn" class="hub-tile">
-                    <div class="hub-icon">✨</div>
-                    <div class="hub-name">技能成长</div>
-                    <div class="hub-desc">局外升级 / 传承</div>
-                </button>
-
-                <button id="hub-equip-btn" class="hub-tile disabled" disabled title="即将加入：装备系统">
-                    <div class="hub-icon">🛡</div>
-                    <div class="hub-name">装备</div>
-                    <div class="hub-desc">即将加入</div>
-                </button>
-
-                <button id="hub-store-btn" class="hub-tile disabled" disabled title="即将加入：商店系统">
-                    <div class="hub-icon">🏪</div>
-                    <div class="hub-name">商店</div>
-                    <div class="hub-desc">即将加入</div>
-                </button>
-
-                <button id="hub-profile-btn" class="hub-tile disabled" disabled title="即将加入：个人信息 / 战力 / 状态">
-                    <div class="hub-icon">👤</div>
-                    <div class="hub-name">个人信息</div>
-                    <div class="hub-desc">即将加入</div>
-                </button>
-
-                <button id="hub-bag-btn" class="hub-tile disabled" disabled title="即将加入：背包">
-                    <div class="hub-icon">🎒</div>
-                    <div class="hub-name">背包</div>
-                    <div class="hub-desc">即将加入</div>
-                </button>
-            </div>
-
             <div class="hub-footer">
-                <div class="hub-footnote">提示：大厅已预留装备 / 商店 / 个人信息 / 背包入口，后续直接替换为真实功能即可。</div>
+                <div class="hub-footnote">目标：让你“进来就开打”。其它系统入口做成小 icon，后续直接替换为真实功能即可。</div>
             </div>
+        </div>
+    </div>
+
+    <!-- Secondary Panel (Profile / Activities etc.) -->
+    <div id="secondary-panel" class="panel hidden" aria-hidden="true">
+        <div id="panel-backdrop" class="panel-backdrop"></div>
+        <div class="panel-sheet" role="dialog" aria-modal="true" aria-label="二级面板">
+            <div class="panel-header">
+                <button id="panel-back-btn" class="panel-back hidden" title="返回上一级">← 返回</button>
+                <div class="panel-crumbs" id="panel-crumbs">大厅</div>
+                <button id="panel-close-btn" class="panel-close" title="关闭">✕</button>
+            </div>
+            <div id="panel-views" class="panel-views" aria-label="面板视图栈">
+                <!-- Root -->
+                <section class="panel-view active" data-view="root">
+                    <div class="panel-section-title">面板</div>
+                    <div class="panel-list">
+                        <button class="panel-entry" data-nav="profile">
+                            <div class="panel-entry-left">
+                                <div class="panel-entry-icon">👤</div>
+                                <div class="panel-entry-text">
+                                    <div class="panel-entry-title">个人信息</div>
+                                    <div class="panel-entry-desc">背包 / 装备 / 数值 / 成就</div>
+                                </div>
+                            </div>
+                            <div class="panel-entry-right">›</div>
+                        </button>
+                        <button class="panel-entry" data-nav="activities">
+                            <div class="panel-entry-left">
+                                <div class="panel-entry-icon">📮</div>
+                                <div class="panel-entry-text">
+                                    <div class="panel-entry-title">活动</div>
+                                    <div class="panel-entry-desc">活动卡片列表（上下滑动浏览）</div>
+                                </div>
+                            </div>
+                            <div class="panel-entry-right">›</div>
+                        </button>
+                        <button class="panel-entry" data-nav="mail">
+                            <div class="panel-entry-left">
+                                <div class="panel-entry-icon">✉</div>
+                                <div class="panel-entry-text">
+                                    <div class="panel-entry-title">邮件 / 公告</div>
+                                    <div class="panel-entry-desc">系统邮件、更新公告</div>
+                                </div>
+                            </div>
+                            <div class="panel-entry-right">›</div>
+                        </button>
+                    </div>
+                    <div class="panel-note">提示：这是“堆叠式面板”。点进去会覆盖到下一层；用左上角“返回”回到上一级。</div>
+                </section>
+
+                <!-- Profile -->
+                <section class="panel-view" data-view="profile">
+                    <div class="panel-section-title">个人信息</div>
+                    <div class="panel-grid">
+                        <button class="panel-item" data-nav="bag">
+                            <div class="panel-item-icon">🎒</div>
+                            <div class="panel-item-name">背包</div>
+                        </button>
+                        <button class="panel-item" data-nav="equip">
+                            <div class="panel-item-icon">🛡</div>
+                            <div class="panel-item-name">装备</div>
+                        </button>
+                        <button class="panel-item" disabled title="即将加入：数值/状态/战力">
+                            <div class="panel-item-icon">📊</div>
+                            <div class="panel-item-name">数值</div>
+                        </button>
+                        <button class="panel-item" disabled title="即将加入：成就/图鉴">
+                            <div class="panel-item-icon">🏆</div>
+                            <div class="panel-item-name">成就</div>
+                        </button>
+                    </div>
+                    <div class="panel-note">背包/装备已收纳到个人信息面板，主界面侧栏保持“打关优先”。</div>
+                </section>
+
+                <!-- Bag -->
+                <section class="panel-view" data-view="bag">
+                    <div class="panel-section-title">背包（占位）</div>
+                    <div class="panel-list">
+                        <div class="panel-card">
+                            <div class="panel-card-title">背包内容</div>
+                            <div class="panel-card-desc">这里未来展示道具/材料/装备等（上下滑动）。</div>
+                        </div>
+                        <div class="panel-card">
+                            <div class="panel-card-title">筛选 / 排序</div>
+                            <div class="panel-card-desc">占位：按品质/类型筛选。</div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Equip -->
+                <section class="panel-view" data-view="equip">
+                    <div class="panel-section-title">装备（占位）</div>
+                    <div class="panel-list">
+                        <div class="panel-card">
+                            <div class="panel-card-title">角色装备栏</div>
+                            <div class="panel-card-desc">这里未来展示装备位/强化/对比等（上下滑动）。</div>
+                        </div>
+                        <div class="panel-card">
+                            <div class="panel-card-title">传承装备</div>
+                            <div class="panel-card-desc">占位：显示已激活传承。</div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Activities -->
+                <section class="panel-view" data-view="activities">
+                    <div class="panel-section-title">活动</div>
+                    <div class="panel-list">
+                        <div class="panel-card">
+                            <div class="panel-card-title">新手七日 · 奖励</div>
+                            <div class="panel-card-desc">完成任意关卡获得奖励（占位文案）。上下滑动浏览更多。</div>
+                        </div>
+                        <div class="panel-card">
+                            <div class="panel-card-title">节日活动 · 加成</div>
+                            <div class="panel-card-desc">通关掉落 +10%（占位文案）。</div>
+                        </div>
+                        <div class="panel-card">
+                            <div class="panel-card-title">挑战任务 · 周常</div>
+                            <div class="panel-card-desc">完成目标领取碎片（占位文案）。</div>
+                        </div>
+                        <div class="panel-card">
+                            <div class="panel-card-title">更多活动…</div>
+                            <div class="panel-card-desc">这里可以无限加卡片，列表可上下滚动。</div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Mail -->
+                <section class="panel-view" data-view="mail">
+                    <div class="panel-section-title">邮件 / 公告</div>
+                    <div class="panel-list">
+                        <div class="panel-card">
+                            <div class="panel-card-title">系统邮件</div>
+                            <div class="panel-card-desc">奖励与通知（占位）。</div>
+                        </div>
+                        <div class="panel-card">
+                            <div class="panel-card-title">更新公告</div>
+                            <div class="panel-card-desc">版本说明（占位）。</div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+            <div class="panel-hint">堆叠覆盖式面板 · 左上角返回上一级 · 页面内可上下滑动</div>
         </div>
     </div>
 
