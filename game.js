@@ -1343,6 +1343,11 @@ class SaveManager {
             heirlooms: [],
             // Meta progression: Skill shards + unlocked skills
             skillShards: 0,
+
+            // Stage progression
+            unlockedStageMax: 1,
+            lastSelectedStage: 1,
+            lastSelectedDifficulty: 'normal',
             // Legacy (will be migrated): unlockedSkills / skillUpgrades
             unlockedSkills: {}, // { [skillId]: true }
             skillUpgrades: {},  // { [skillId]: { dmg, range, cd, qty, mech } }
@@ -1374,6 +1379,9 @@ class SaveManager {
 
     _ensureMetaSkillLevelDefaults() {
         if (typeof this.data.skillShards !== 'number') this.data.skillShards = 0;
+        if (typeof this.data.unlockedStageMax !== 'number') this.data.unlockedStageMax = 1;
+        if (typeof this.data.lastSelectedStage !== 'number') this.data.lastSelectedStage = 1;
+        if (typeof this.data.lastSelectedDifficulty !== 'string') this.data.lastSelectedDifficulty = 'normal';
         if (!this.data.skillLevels || typeof this.data.skillLevels !== 'object') this.data.skillLevels = {};
         if (typeof this.data.skillLevelsSpent !== 'number') this.data.skillLevelsSpent = 0;
 
@@ -1439,6 +1447,27 @@ class SaveManager {
         this.save();
     }
 
+    getUnlockedStageMax() {
+        return Math.max(1, Math.floor(this.data.unlockedStageMax || 1));
+    }
+
+    unlockStage(stageNumber) {
+        const n = Math.max(1, Math.floor(stageNumber || 1));
+        const cur = this.getUnlockedStageMax();
+        if (n > cur) {
+            this.data.unlockedStageMax = n;
+            this.save();
+            this.updateUI();
+        }
+    }
+
+    setLastStageSelection(stageNumber, difficultyId) {
+        this.data.lastSelectedStage = Math.max(1, Math.floor(stageNumber || 1));
+        this.data.lastSelectedDifficulty = String(difficultyId || 'normal');
+        this.save();
+        this.updateUI();
+    }
+
     addSkillShards(a) {
         const add = Math.max(0, Math.floor(a || 0));
         if (add <= 0) return;
@@ -1457,6 +1486,8 @@ class SaveManager {
         if (shardsEl) shardsEl.innerText = (this.data.skillShards || 0);
         const metaShardsEl = document.getElementById('meta-skill-shards');
         if (metaShardsEl) metaShardsEl.innerText = (this.data.skillShards || 0);
+        const stageShardsEl = document.getElementById('stage-select-skill-shards');
+        if (stageShardsEl) stageShardsEl.innerText = (this.data.skillShards || 0);
 
         const hList = document.getElementById('heirloom-list');
         const hContainer = document.getElementById('heirloom-display');
@@ -2068,7 +2099,8 @@ class Enemy {
         const hpMul = Math.pow(baseF, isBoss ? 1.08 : (isElite ? 1.16 : 1.25));
         const dmgMul = Math.pow(baseF, isBoss ? 1.05 : (isElite ? 1.10 : 1.18));
         const speedMul = Math.pow(baseF, isBoss ? 0.035 : (isElite ? 0.05 : 0.06));
-        this.maxHp = this.baseHp * hpMul;
+        const diff = (game && typeof game.getDifficulty === 'function') ? game.getDifficulty() : { enemyHpMul: 1, enemyDmgMul: 1 };
+        this.maxHp = this.baseHp * hpMul * (diff.enemyHpMul || 1);
         
         // Frenzy nerfs
         if (game.frenzyActive) {
@@ -2076,7 +2108,7 @@ class Enemy {
         }
 
         this.hp = this.maxHp;
-        this.damage = this.damage * dmgMul;
+        this.damage = this.damage * dmgMul * (diff.enemyDmgMul || 1);
         this.speed = this.speed * speedMul;
         // EXP scales mainly with enemy level (lv1 normal => 1 EXP), bosses give lots.
         const expBase = (config.exp !== undefined ? config.exp : 1);
@@ -2907,7 +2939,7 @@ class Game {
         this.saveManager.onAddHeirloom = () => { this.sfx.play('loot'); };
         this.saveManager.updateUI();
 
-        document.getElementById('start-game-btn').onclick = () => { this.sfx.play('start'); this.startGameSetup(); };
+        document.getElementById('start-game-btn').onclick = () => { this.sfx.play('start'); this.openStageSelect(); };
         document.getElementById('shop-btn').onclick = () => { this.sfx.play('open'); this.openShop(); };
         document.getElementById('shop-back-btn').onclick = () => { this.sfx.play('close'); this.closeShop(); };
         document.getElementById('start-bonus-confirm-btn').onclick = () => { this.sfx.play('start'); this.startGame(); };
@@ -2933,6 +2965,26 @@ class Game {
         document.getElementById('resume-btn').onclick = () => { this.togglePause(); };
         document.getElementById('quit-btn').onclick = () => { this.sfx.play('close'); this.returnToMenu(); };
         document.getElementById('stats-btn').onclick = () => { this.togglePause(); };
+
+        // 关卡选择界面
+        const stageBack = document.getElementById('stage-back-btn');
+        if (stageBack) stageBack.onclick = () => { this.sfx.play('close'); this.closeStageSelect(); };
+        const stagePrev = document.getElementById('stage-prev');
+        if (stagePrev) stagePrev.onclick = () => { this.sfx.play('click'); this.stageSelectMove(-1); };
+        const stageNext = document.getElementById('stage-next');
+        if (stageNext) stageNext.onclick = () => { this.sfx.play('click'); this.stageSelectMove(1); };
+        const stageConfirm = document.getElementById('stage-confirm-btn');
+        if (stageConfirm) stageConfirm.onclick = () => { this.sfx.play('start'); this.confirmStageSelection(); };
+
+        const diffRow = document.getElementById('difficulty-row');
+        if (diffRow) {
+            diffRow.querySelectorAll('.diff-btn').forEach(btn => {
+                btn.onclick = () => {
+                    const id = btn.getAttribute('data-diff') || 'normal';
+                    this.setStageSelectDifficulty(id);
+                };
+            });
+        }
 
         // 大厅按钮（关卡间）
         const lobbyNext = document.getElementById('lobby-next-btn');
@@ -3210,6 +3262,147 @@ class Game {
         this.saveManager.updateUI(); // Refresh points display
     }
 
+    // --- Stage Select UI ---
+    getAllStagesMeta() {
+        // 关卡概念（可继续扩展成“主题/地图规则”）
+        return [
+            { id: 1, name: '第 1 关：草地边境', desc: '基础教学关：熟悉移动、拾取、升级。' },
+            { id: 2, name: '第 2 关：风行小径', desc: '速度压力上升：学会绕圈与风筝。' },
+            { id: 3, name: '第 3 关：毒沼边缘', desc: '场地机制开始出现：注意毒池与走位。' },
+            { id: 4, name: '第 4 关：圣坛废墟', desc: '回复与护盾机制登场：优先处理关键单位。' },
+            { id: 5, name: '第 5 关：烈焰裂谷', desc: '爆发威胁提高：自爆蜂/盾卫会惩罚站桩。' },
+            { id: 6, name: '第 6 关：冷枪回廊', desc: '远程威胁出现：狙击手迫使你保持机动。' },
+            { id: 7, name: '第 7 关：虚空回响', desc: '高机动敌人与精英池登场：节奏更紧凑。' },
+        ];
+    }
+
+    getDifficultyDefs() {
+        return {
+            easy:   { id: 'easy',   name: '新手', enemyHpMul: 0.85, enemyDmgMul: 0.85, spawnMul: 0.92, eliteMul: 0.80, shardMul: 0.90 },
+            normal: { id: 'normal', name: '中级', enemyHpMul: 1.00, enemyDmgMul: 1.00, spawnMul: 1.00, eliteMul: 1.00, shardMul: 1.00 },
+            hard:   { id: 'hard',   name: '高级', enemyHpMul: 1.15, enemyDmgMul: 1.15, spawnMul: 1.12, eliteMul: 1.15, shardMul: 1.15 },
+            hell:   { id: 'hell',   name: '地狱', enemyHpMul: 1.35, enemyDmgMul: 1.35, spawnMul: 1.25, eliteMul: 1.35, shardMul: 1.35 },
+        };
+    }
+
+    getDifficulty() {
+        const defs = this.getDifficultyDefs();
+        const id = this.difficultyId || 'normal';
+        return defs[id] || defs.normal;
+    }
+
+    openStageSelect() {
+        // Defaults from save
+        const maxUnlocked = this.saveManager ? this.saveManager.getUnlockedStageMax() : 1;
+        const lastStage = (this.saveManager && this.saveManager.data && this.saveManager.data.lastSelectedStage) ? this.saveManager.data.lastSelectedStage : 1;
+        const lastDiff = (this.saveManager && this.saveManager.data && this.saveManager.data.lastSelectedDifficulty) ? this.saveManager.data.lastSelectedDifficulty : 'normal';
+        this.stageSelectMaxUnlocked = Math.max(1, maxUnlocked);
+        this.stageSelectIndex = Math.max(1, Math.min(this.getAllStagesMeta().length, Math.floor(lastStage || 1)));
+        this.stageSelectDifficulty = String(lastDiff || 'normal');
+
+        document.getElementById('main-menu').classList.add('hidden');
+        const s = document.getElementById('stage-select-screen');
+        if (s) s.classList.remove('hidden');
+        this.saveManager.updateUI();
+        this.updateStageSelectUI();
+    }
+
+    closeStageSelect() {
+        const s = document.getElementById('stage-select-screen');
+        if (s) s.classList.add('hidden');
+        document.getElementById('main-menu').classList.remove('hidden');
+        this.saveManager.updateUI();
+    }
+
+    stageSelectMove(dir) {
+        const stages = this.getAllStagesMeta();
+        const max = stages.length;
+        this.stageSelectIndex = Math.max(1, Math.min(max, (this.stageSelectIndex || 1) + (dir || 0)));
+        this.updateStageSelectUI();
+    }
+
+    setStageSelectDifficulty(id) {
+        this.stageSelectDifficulty = String(id || 'normal');
+        this.updateStageSelectUI();
+    }
+
+    updateStageSelectUI() {
+        const stages = this.getAllStagesMeta();
+        const idx = Math.max(1, Math.min(stages.length, this.stageSelectIndex || 1));
+        const meta = stages[idx - 1];
+        const unlockedMax = Math.max(1, this.stageSelectMaxUnlocked || (this.saveManager ? this.saveManager.getUnlockedStageMax() : 1));
+        const isUnlocked = (meta.id <= unlockedMax);
+
+        const titleEl = document.getElementById('stage-title');
+        if (titleEl) titleEl.innerText = meta.name;
+        const descEl = document.getElementById('stage-desc');
+        if (descEl) descEl.innerText = meta.desc;
+
+        const badge = document.getElementById('stage-unlock-badge');
+        if (badge) {
+            badge.classList.remove('locked', 'unlocked');
+            if (isUnlocked) {
+                badge.classList.add('unlocked');
+                badge.innerText = '已解锁';
+            } else {
+                badge.classList.add('locked');
+                badge.innerText = `未解锁（通关至第 ${unlockedMax} 关）`;
+            }
+        }
+
+        const preview = document.getElementById('stage-enemy-preview');
+        if (preview) {
+            preview.innerHTML = '';
+            const pool = this.getStageEnemyPool(meta.id);
+            (pool.labels || []).forEach(t => {
+                const div = document.createElement('div');
+                div.className = 'enemy-preview-chip';
+                div.innerText = t;
+                preview.appendChild(div);
+            });
+        }
+
+        const defs = this.getDifficultyDefs();
+        const did = (this.stageSelectDifficulty || 'normal');
+        const row = document.getElementById('difficulty-row');
+        if (row) {
+            row.querySelectorAll('.diff-btn').forEach(btn => {
+                btn.classList.remove('active', 'hell');
+                const bid = btn.getAttribute('data-diff') || 'normal';
+                if (bid === did) {
+                    btn.classList.add('active');
+                    if (bid === 'hell') btn.classList.add('hell');
+                }
+            });
+        }
+
+        const confirm = document.getElementById('stage-confirm-btn');
+        if (confirm) {
+            confirm.disabled = !isUnlocked;
+            confirm.style.opacity = isUnlocked ? '1' : '0.55';
+            confirm.innerText = isUnlocked ? '开始' : '未解锁';
+        }
+
+        // Keep last selection synced in save (for convenience)
+        if (this.saveManager) this.saveManager.setLastStageSelection(meta.id, did);
+    }
+
+    confirmStageSelection() {
+        const stages = this.getAllStagesMeta();
+        const idx = Math.max(1, Math.min(stages.length, this.stageSelectIndex || 1));
+        const stageId = stages[idx - 1].id;
+        const unlockedMax = this.saveManager ? this.saveManager.getUnlockedStageMax() : 1;
+        if (stageId > unlockedMax) return;
+
+        this.selectedStage = stageId;
+        this.difficultyId = this.stageSelectDifficulty || 'normal';
+        if (this.saveManager) this.saveManager.setLastStageSelection(this.selectedStage, this.difficultyId);
+
+        const s = document.getElementById('stage-select-screen');
+        if (s) s.classList.add('hidden');
+        this.startGameSetup();
+    }
+
     startGameSetup() {
         // Step 1: Pick a random bonus skill
         let skillIds = Object.keys(SKILLS).filter(id => this.saveManager && this.saveManager.isSkillUnlocked(id));
@@ -3223,15 +3416,19 @@ class Game {
         
         // Show Bonus Modal
         document.getElementById('main-menu').classList.add('hidden');
+        const stageSel = document.getElementById('stage-select-screen');
+        if (stageSel) stageSel.classList.add('hidden');
         document.getElementById('start-bonus-modal').classList.remove('hidden');
     }
 
     startGame() {
-        // 从“轮回馈赠”确认进入第一关
+        // 从“轮回馈赠”确认进入所选关卡
         document.getElementById('start-bonus-modal').classList.add('hidden');
         document.getElementById('game-over-modal').classList.add('hidden');
         const lobby = document.getElementById('lobby-screen');
         if (lobby) lobby.classList.add('hidden');
+        const stageSel = document.getElementById('stage-select-screen');
+        if (stageSel) stageSel.classList.add('hidden');
         document.getElementById('game-container').classList.remove('hidden');
 
         // 每关波数：提高波次数量，减少“慢热 -> 突刺”的体感
@@ -3241,7 +3438,10 @@ class Game {
 
         // 新轮回开始：清空精英池（精英池只在本次轮回内累计）
         this.eliteBlueprints = [];
-        this.startStage(1, { resetPlayer: true, applyBonusSkill: true });
+        // 使用用户选择的关卡与难度
+        this.selectedStage = Math.max(1, Math.floor(this.selectedStage || 1));
+        this.difficultyId = this.difficultyId || 'normal';
+        this.startStage(this.selectedStage, { resetPlayer: true, applyBonusSkill: true });
     }
 
     // 每一关开始时：重置玩家等级/经验/技能/本关装备（保留天赋与传家宝）
@@ -3283,7 +3483,7 @@ class Game {
         this.intensitySmooth = 0;
         this.bossActive = false;
         this.bossRef = null;
-        this.eliteBlueprints = [];
+        // 注意：精英池跨关卡保留（在 startGame 新轮回开始时才清空）
         document.getElementById('boss-hp-container').classList.add('hidden');
 
         // UI
@@ -3524,6 +3724,8 @@ class Game {
         this.updateMobileControlsVisibility();
         const lobby = document.getElementById('lobby-screen');
         if (lobby) lobby.classList.add('hidden');
+        const stageSel = document.getElementById('stage-select-screen');
+        if (stageSel) stageSel.classList.add('hidden');
         document.getElementById('game-container').classList.add('hidden');
         document.getElementById('main-menu').classList.remove('hidden');
         document.getElementById('pause-modal').classList.add('hidden');
@@ -3765,7 +3967,9 @@ class Game {
 
         // 微调：每第 5 波略增压，但不做“休息波/爆发波”的硬切
         const wavePulse = ((this.wave % 5) === 0) ? 1.08 : 1.0;
-        return Math.max(0.6, Math.min(6.8, perSecRaw * earlyBoost * wavePulse));
+        const diff = this.getDifficulty ? this.getDifficulty() : { spawnMul: 1 };
+        const spawnMul = (diff && diff.spawnMul !== undefined) ? diff.spawnMul : 1;
+        return Math.max(0.6, Math.min(6.8, perSecRaw * earlyBoost * wavePulse * spawnMul));
     }
 
     getDynamicSpawnCount() {
@@ -3783,7 +3987,10 @@ class Game {
         const dps = (p.damage / Math.max(0.12, p.attackCooldown));
         const power = (p.level * 0.7) + (dps / 60) + (p.maxHp / 200);
         // Hard cap to avoid performance issues
-        return Math.max(40, Math.min(100, Math.floor(40 + power * 7)));
+        const base = Math.max(40, Math.min(100, Math.floor(40 + power * 7)));
+        const diff = this.getDifficulty ? this.getDifficulty() : { id: 'normal' };
+        const mul = (diff && diff.id === 'easy') ? 0.92 : ((diff && diff.id === 'hell') ? 1.06 : 1.0);
+        return Math.max(35, Math.min(120, Math.floor(base * mul)));
     }
 
     getDifficultyFactor() {
@@ -3942,7 +4149,11 @@ class Game {
         document.getElementById('boss-hp-container').classList.add('hidden');
         this.registerEliteFromBoss(boss);
         // Boss 奖励：技能碎片（关卡外解锁用）
-        this.saveManager.addSkillShards(6 + Math.floor(this.stage * 2));
+        const diff = this.getDifficulty ? this.getDifficulty() : { shardMul: 1 };
+        const mul = (diff && diff.shardMul !== undefined) ? diff.shardMul : 1;
+        this.saveManager.addSkillShards(Math.floor((6 + Math.floor(this.stage * 2)) * mul));
+        // 通关解锁下一关（存档持久化）
+        if (this.saveManager) this.saveManager.unlockStage(this.stage + 1);
         this.state = 'PAUSED';
         this.pendingLootItem = this.generateLoot();
         
@@ -4357,7 +4568,9 @@ class Game {
     gameOver() {
         this.state = 'GAMEOVER';
         this.updateMobileControlsVisibility();
-        const shards = Math.floor(this.gameTime / 6);
+        const diff = this.getDifficulty ? this.getDifficulty() : { shardMul: 1 };
+        const mul = (diff && diff.shardMul !== undefined) ? diff.shardMul : 1;
+        const shards = Math.floor(Math.floor(this.gameTime / 6) * mul);
         this.saveManager.addSkillShards(shards);
         const td = document.getElementById('time-display');
         const finalTime = td ? td.innerText : "00:00";

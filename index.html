@@ -22,6 +22,38 @@
         </div>
     </div>
 
+    <!-- Stage Select Screen -->
+    <div id="stage-select-screen" class="hidden">
+        <h1>选择关卡</h1>
+        <div class="subtitle">左右切换 · 选择难度</div>
+        <div class="currency-display">技能碎片: <span id="stage-select-skill-shards">0</span></div>
+
+        <div class="stage-carousel">
+            <button id="stage-prev" class="icon-btn stage-nav" title="上一关">◀</button>
+            <div class="stage-card">
+                <div class="stage-badge" id="stage-unlock-badge">已解锁</div>
+                <div class="stage-title" id="stage-title">第 1 关</div>
+                <div class="stage-desc" id="stage-desc">关卡描述</div>
+                <div class="stage-enemies-title">本关怪物</div>
+                <div id="stage-enemy-preview"></div>
+
+                <div class="stage-difficulty-title">难度</div>
+                <div class="difficulty-row" id="difficulty-row">
+                    <button class="diff-btn" data-diff="easy">新手</button>
+                    <button class="diff-btn" data-diff="normal">中级</button>
+                    <button class="diff-btn" data-diff="hard">高级</button>
+                    <button class="diff-btn" data-diff="hell">地狱</button>
+                </div>
+            </div>
+            <button id="stage-next" class="icon-btn stage-nav" title="下一关">▶</button>
+        </div>
+
+        <div class="menu-buttons" style="margin-top: 18px;">
+            <button id="stage-confirm-btn" class="big-btn">开始</button>
+            <button id="stage-back-btn" class="big-btn" style="background-color: #757575;">返回主菜单</button>
+        </div>
+    </div>
+
     <!-- Lobby Screen (Between stages) -->
     <div id="lobby-screen" class="hidden">
         <h1>大厅</h1>
