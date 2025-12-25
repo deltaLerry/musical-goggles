@@ -491,6 +491,12 @@ body {
     .stage-orb-btn { width: 150px; height: 150px; font-size: 17px; }
 }
 
+/* Small screens: keep panel content full-width and avoid cramped multi-column grids */
+@media (max-width: 520px) {
+    .panel-skill-list { grid-template-columns: 1fr; }
+    .panel-grid { grid-template-columns: 1fr; }
+}
+
 /* Secondary panel */
 .panel.hidden { display: none !important; }
 .panel {
@@ -664,7 +670,7 @@ body {
 .panel-view {
     position: absolute;
     inset: 0;
-    padding: 14px 14px 18px 14px;
+    padding: 12px 12px 16px 12px;
     overflow-y: auto;
     overscroll-behavior: contain;
     transform: translateX(105%);
@@ -1120,7 +1126,7 @@ body {
     z-index: auto;
     display: flex;
     flex-direction: column;
-    align-items: center;
+    align-items: stretch;
     justify-content: flex-start;
     padding: 0 !important;
 }
@@ -1129,11 +1135,12 @@ body {
     display: none;
 }
 .panel-view[data-view="stageSelect"] #stage-select-screen .currency-display {
-    width: min(720px, 88vw);
+    width: 100%;
     display: flex;
     justify-content: flex-end;
     align-items: center;
     gap: 8px;
+    padding: 0 2px;
     margin: 6px 0 10px 0;
     font-size: 12px;
     font-weight: 1000;
@@ -1144,14 +1151,14 @@ body {
 }
 .panel-view[data-view="stageSelect"] .stage-carousel {
     width: 100%;
-    justify-content: center;
+    justify-content: stretch;
 }
 .panel-view[data-view="stageSelect"] .stage-card {
-    width: min(720px, 88vw);
+    width: 100%;
     /* 面板内不需要重复“卡片边框/阴影”，避免和面板外框叠加 */
     border: none;
     box-shadow: none;
-    background: rgba(0,0,0,0.16);
+    background: rgba(0,0,0,0.20);
     border-radius: 16px;
     padding: 16px 14px 14px 14px;
 }
