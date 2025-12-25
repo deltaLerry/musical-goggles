@@ -1396,6 +1396,38 @@ const skillSigilSvg = (skillId, extraClass = '') => {
     return `<svg class="${safeAttr(cls)}" viewBox="0 0 24 24" aria-hidden="true"><use href="#sigil-${safeAttr(sid)}"></use></svg>`;
 };
 
+// Skill archetype for UI tinting (swift/stone/insight)
+const SKILL_ARCH_UI = {
+    // Active
+    blinding_dart: 'swift',
+    chain_lightning: 'swift',
+    blade_storm: 'swift',
+    meteor_strike: 'swift',
+    healing_totem: 'stone',
+    poison_nova: 'insight',
+    mushroom_trap: 'insight',
+    frost_nova: 'insight',
+    // Passive
+    sharpness: 'swift',
+    quick_draw: 'swift',
+    haste: 'swift',
+    multishot: 'swift',
+    split_shot: 'swift',
+    toxic_blades: 'swift',
+    adrenaline: 'swift',
+    vitality: 'stone',
+    health_boost: 'stone',
+    regen: 'stone',
+    iron_skin: 'stone',
+    swiftness: 'insight',
+    wisdom: 'insight',
+    meditation: 'insight',
+    reach: 'insight',
+    arcane_amp: 'insight',
+};
+const getSkillArchUI = (id, def) => (SKILL_ARCH_UI && id && SKILL_ARCH_UI[id]) ? SKILL_ARCH_UI[id] : ((def && def.type === 'active') ? 'swift' : 'insight');
+const archLabelUI = (a) => ({ swift: '迅猛', stone: '磐石', insight: '启迪' }[a] || '迅猛');
+
 const ITEMS = [
     { id: 'iron_sword', name: '斩铁剑', desc: '攻击力 +20, 攻速 +5%', isHeirloom: false, stats: { damage: 20, cdr: 0.05 } },
     { id: 'dragon_scale', name: '龙鳞甲', desc: '最大生命 +100, 减伤 +5 (传承)', isHeirloom: true, stats: { maxHp: 100, damageReduction: 5 } },
@@ -6249,6 +6281,7 @@ class Game {
         const m = document.getElementById('upgrade-modal');
         const c = document.getElementById('upgrade-options');
         c.innerHTML = '';
+        const safe = (s) => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
         const pool = Object.keys(SKILLS)
             .filter(k => this.saveManager && this.saveManager.isSkillUnlocked(k))
             .filter(k => (this.player.skills[k] || 0) < SKILLS[k].maxLevel);
@@ -6262,8 +6295,23 @@ class Game {
             const def = SKILLS[id];
             const lvl = (this.player.skills[id]||0) + 1;
             const d = document.createElement('div');
-            d.className = 'upgrade-card';
-            d.innerHTML = `<h3>${skillSigilSvg(id, 'inline')}${def.name} Lv.${lvl}</h3><p>${def.desc(lvl)}</p>`;
+            const arch = getSkillArchUI(id, def);
+            const typeLabel = (def && def.type === 'active') ? '主动' : '被动';
+            d.className = `upgrade-card ${arch}`;
+            d.innerHTML = `
+                <div class="upgrade-left">${skillSigilSvg(id)}</div>
+                <div class="upgrade-right">
+                    <div class="upgrade-head">
+                        <div class="upgrade-title">${safe(def.name || id)}</div>
+                        <div class="upgrade-meta">Lv.${safe(lvl)}</div>
+                    </div>
+                    <div class="upgrade-tags">
+                        <span class="upgrade-tag ${safe(arch)}">${safe(archLabelUI(arch))}</span>
+                        <span class="upgrade-tag">${safe(typeLabel)}</span>
+                    </div>
+                    <div class="upgrade-desc">${safe(def.desc ? def.desc(lvl) : '')}</div>
+                </div>
+            `;
             d.onclick = () => {
                 this.player.skills[id] = lvl;
                 this.player.gainExp(0);
@@ -6274,8 +6322,21 @@ class Game {
         });
         if (picks.length===0) {
             const d = document.createElement('div');
-            d.className='upgrade-card';
-            d.innerHTML='<h3>HP 回复</h3><p>回复 50% 生命</p>';
+            d.className='upgrade-card stone';
+            d.innerHTML = `
+                <div class="upgrade-left">${skillSigilSvg('vitality')}</div>
+                <div class="upgrade-right">
+                    <div class="upgrade-head">
+                        <div class="upgrade-title">生命回复</div>
+                        <div class="upgrade-meta">立即</div>
+                    </div>
+                    <div class="upgrade-tags">
+                        <span class="upgrade-tag stone">磐石</span>
+                        <span class="upgrade-tag">补给</span>
+                    </div>
+                    <div class="upgrade-desc">回复 50% 生命</div>
+                </div>
+            `;
             d.onclick=()=>{ this.player.hp=Math.min(this.player.maxHp, this.player.hp+this.player.maxHp*0.5); this.closeModal('upgrade-modal');};
             c.appendChild(d);
         }

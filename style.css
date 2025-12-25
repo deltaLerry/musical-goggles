@@ -1960,12 +1960,54 @@ body {
     max-height: 50vh; overflow-y: auto;
 }
 .upgrade-card {
-    background: #444; padding: 15px; border: 2px solid #555; border-radius: 8px;
-    cursor: pointer; text-align: left; transition: all 0.2s;
+    background: rgba(0,0,0,0.30);
+    padding: 12px 12px;
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 16px;
+    cursor: pointer;
+    text-align: left;
+    transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease, filter 0.12s ease;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
 }
-.upgrade-card:hover { background: #555; border-color: #888; transform: translateX(5px); }
-.upgrade-card h3 { margin: 0 0 5px 0; color: #ffd700; }
-.upgrade-card p { margin: 0; color: #ccc; font-size: 14px; }
+.upgrade-card:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,215,0,0.18); transform: translateY(-1px); }
+.upgrade-card:active { transform: translateY(0) scale(0.99); filter: brightness(1.05); }
+.upgrade-left {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.10);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    box-shadow: 0 10px 22px rgba(0,0,0,0.22);
+}
+.upgrade-left .skill-sigil { width: 26px; height: 26px; color: rgba(255,255,255,0.92); }
+.upgrade-card.swift .upgrade-left .skill-sigil { color: rgba(255, 87, 34, 0.98); }
+.upgrade-card.stone .upgrade-left .skill-sigil { color: rgba(225, 182, 90, 0.98); }
+.upgrade-card.insight .upgrade-left .skill-sigil { color: rgba(3, 169, 244, 0.98); }
+
+.upgrade-right { flex: 1 1 auto; min-width: 0; }
+.upgrade-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.upgrade-title { font-weight: 1000; color: rgba(255,255,255,0.94); letter-spacing: 0.2px; }
+.upgrade-meta { font-weight: 1000; font-size: 12px; color: rgba(255,255,255,0.72); white-space: nowrap; }
+.upgrade-tags { margin-top: 6px; display: flex; gap: 8px; flex-wrap: wrap; }
+.upgrade-tag {
+    padding: 5px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(0,0,0,0.18);
+    font-weight: 900;
+    font-size: 11px;
+    color: rgba(255,255,255,0.80);
+}
+.upgrade-tag.swift { border-color: rgba(255, 87, 34, 0.35); background: rgba(255, 87, 34, 0.10); color: rgba(255, 220, 205, 0.96); }
+.upgrade-tag.stone { border-color: rgba(225, 182, 90, 0.42); background: rgba(225, 182, 90, 0.10); color: rgba(255, 243, 210, 0.95); }
+.upgrade-tag.insight { border-color: rgba(3, 169, 244, 0.35); background: rgba(3, 169, 244, 0.10); color: rgba(186, 234, 255, 0.95); }
+.upgrade-desc { margin-top: 8px; font-size: 12px; color: rgba(255,255,255,0.74); line-height: 1.4; white-space: pre-line; }
 
 .loot-item {
     background: #222; border: 2px solid #E040FB; padding: 20px; border-radius: 10px;
