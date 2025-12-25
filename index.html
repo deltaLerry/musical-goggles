@@ -37,9 +37,17 @@
                         <div class="hub-avatar-name">玩家</div>
                     </button>
                     <div class="hub-top-stats" aria-label="资源栏">
-                        <div class="hub-pill" title="技能碎片">
+                        <div class="hub-pill" title="技能碎片（用于局外技能升级）">
                             <span class="hub-pill-icon">💠</span>
                             <span class="hub-pill-value" id="meta-skill-shards">0</span>
+                        </div>
+                        <div class="hub-pill" title="金币">
+                            <span class="hub-pill-icon">🪙</span>
+                            <span class="hub-pill-value" id="meta-gold">0</span>
+                        </div>
+                        <div class="hub-pill" title="宝石">
+                            <span class="hub-pill-icon">💎</span>
+                            <span class="hub-pill-value" id="meta-gems">0</span>
                         </div>
                     </div>
                 </div>
@@ -89,9 +97,17 @@
                 <button id="panel-back-btn" class="panel-back" title="返回/关闭">←</button>
                 <div class="panel-crumbs" id="panel-crumbs">大厅</div>
                 <div class="panel-header-right">
-                    <div class="panel-shards-pill" title="技能碎片">
+                    <div class="panel-shards-pill" title="技能碎片（用于局外技能升级）">
                         <span class="panel-shards-icon">💠</span>
                         <span class="panel-shards-val" id="panel-shards-val">0</span>
+                    </div>
+                    <div class="panel-shards-pill" title="金币">
+                        <span class="panel-shards-icon">🪙</span>
+                        <span class="panel-shards-val" id="panel-gold-val">0</span>
+                    </div>
+                    <div class="panel-shards-pill" title="宝石">
+                        <span class="panel-shards-icon">💎</span>
+                        <span class="panel-shards-val" id="panel-gems-val">0</span>
                     </div>
                     <button id="panel-close-btn" class="panel-close" title="关闭">✕</button>
                 </div>
@@ -170,7 +186,7 @@
                         </div>
                         <div class="panel-card">
                             <div class="panel-card-title">挑战任务 · 周常</div>
-                            <div class="panel-card-desc">完成目标领取碎片（占位文案）。</div>
+                            <div class="panel-card-desc">完成目标领取金币/宝石（占位文案）。</div>
                         </div>
                         <div class="panel-card">
                             <div class="panel-card-title">更多活动…</div>
@@ -266,7 +282,12 @@
     <div id="shop-screen" class="hidden">
         <button id="shop-back-btn" class="icon-btn screen-close" title="关闭">✕</button>
         <h2>传承与局外成长</h2>
-        <div class="currency-display" title="技能碎片"><span class="currency-icon">💠</span> <span id="shop-skill-shards">0</span></div>
+        <div class="currency-display" title="资源">
+            <span class="currency-icon" title="金币">🪙</span> <span id="shop-gold">0</span>
+            <span style="opacity:0.45; padding:0 6px;">|</span>
+            <span class="currency-icon" title="宝石">💎</span> <span id="shop-gems">0</span>
+        </div>
+        <div class="currency-display" title="技能碎片（用于局外技能升级）"><span class="currency-icon">💠</span> <span id="shop-skill-shards">0</span></div>
         
         <div id="heirloom-display" class="hidden">
             <h3>传承装备 (已激活)</h3>
@@ -289,7 +310,7 @@
             </div>
             </div>
             <div class="skill-upgrade-actions">
-                <button id="skill-upgrade-reset-btn" class="small-btn danger">重置局外升级（返还碎片）</button>
+                <button id="skill-upgrade-reset-btn" class="small-btn danger">重置局外升级（返还金币/宝石）</button>
             </div>
             <div id="skill-upgrade-list"></div>
         </div>
@@ -421,7 +442,12 @@
             <div class="modal-content">
                 <h2 id="end-title">游戏结束</h2>
                 <p>存活时间: <span id="final-time"></span></p>
-            <p title="获得技能碎片"><span class="currency-icon">💠</span> +<span id="gained-points">0</span></p>
+                <p title="获得技能碎片（用于局外技能升级）"><span class="currency-icon">💠</span> +<span id="gained-points">0</span></p>
+                <p title="本轮获得金币/宝石">
+                    <span class="currency-icon" title="金币">🪙</span> +<span id="gained-gold">0</span>
+                    <span style="opacity:0.45; padding:0 6px;">|</span>
+                    <span class="currency-icon" title="宝石">💎</span> +<span id="gained-gems">0</span>
+                </p>
                 <button id="return-menu-btn">返回主菜单</button>
             </div>
         </div>

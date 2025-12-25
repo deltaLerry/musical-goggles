@@ -1445,8 +1445,10 @@ class SaveManager {
     constructor() {
         this.data = {
             heirlooms: [],
-            // Meta progression: Skill shards + unlocked skills
+            // Meta progression: Skill shards (for meta skill upgrades) + Economy (gold/gems)
             skillShards: 0,
+            gold: 0,
+            gems: 0,
 
             // Stage progression
             unlockedStageMax: 1,
@@ -1486,6 +1488,8 @@ class SaveManager {
 
     _ensureMetaSkillLevelDefaults() {
         if (typeof this.data.skillShards !== 'number') this.data.skillShards = 0;
+        if (typeof this.data.gold !== 'number') this.data.gold = 0;
+        if (typeof this.data.gems !== 'number') this.data.gems = 0;
         if (typeof this.data.unlockedStageMax !== 'number') this.data.unlockedStageMax = 1;
         if (typeof this.data.lastSelectedStage !== 'number') this.data.lastSelectedStage = 1;
         if (typeof this.data.lastSelectedDifficulty !== 'string') this.data.lastSelectedDifficulty = 'normal';
@@ -1493,7 +1497,7 @@ class SaveManager {
         if (!this.data.skillLevels || typeof this.data.skillLevels !== 'object') this.data.skillLevels = {};
         if (typeof this.data.skillLevelsSpent !== 'number') this.data.skillLevelsSpent = 0;
 
-        // 旧版 points/talents 迁移：把 points 转成碎片，talents 直接丢弃（已融合进技能系统）
+        // 旧版 points/talents 迁移：把 points 转成碎片（旧逻辑），talents 直接丢弃（已融合进技能系统）
         if (typeof this.data.points === 'number' && this.data.points > 0) {
             this.data.skillShards += Math.floor(this.data.points);
         }
@@ -1628,13 +1632,24 @@ class SaveManager {
         this.updateUI();
     }
 
-    addSkillShards(a) {
+    addGold(a) {
         const add = Math.max(0, Math.floor(a || 0));
         if (add <= 0) return;
-        this.data.skillShards = (this.data.skillShards || 0) + add;
+        this.data.gold = (this.data.gold || 0) + add;
         this.save();
         this.updateUI();
     }
+
+    addGems(a) {
+        const add = Math.max(0, Math.floor(a || 0));
+        if (add <= 0) return;
+        this.data.gems = (this.data.gems || 0) + add;
+        this.save();
+        this.updateUI();
+    }
+
+    // Back-compat: keep old API name for meta currency.
+    addSkillShards(a) { this.data.skillShards = (this.data.skillShards || 0) + Math.max(0, Math.floor(a || 0)); this.save(); this.updateUI(); }
 
     isSkillUnlocked(skillId) {
         if (!skillId) return false;
@@ -1642,14 +1657,29 @@ class SaveManager {
     }
 
     updateUI() {
+        // Shards (meta skill upgrades)
         const shardsEl = document.getElementById('shop-skill-shards');
-        if (shardsEl) shardsEl.innerText = (this.data.skillShards || 0);
+        if (shardsEl) shardsEl.innerText = String(Math.max(0, Math.floor(this.data.skillShards || 0)));
         const metaShardsEl = document.getElementById('meta-skill-shards');
-        if (metaShardsEl) metaShardsEl.innerText = (this.data.skillShards || 0);
-        const stageShardsEl = document.getElementById('stage-select-skill-shards');
-        if (stageShardsEl) stageShardsEl.innerText = (this.data.skillShards || 0);
+        if (metaShardsEl) metaShardsEl.innerText = String(Math.max(0, Math.floor(this.data.skillShards || 0)));
         const panelShardsEl = document.getElementById('panel-shards-val');
-        if (panelShardsEl) panelShardsEl.innerText = (this.data.skillShards || 0);
+        if (panelShardsEl) panelShardsEl.innerText = String(Math.max(0, Math.floor(this.data.skillShards || 0)));
+
+        // Economy: gold/gems
+        const shopGoldEl = document.getElementById('shop-gold');
+        if (shopGoldEl) shopGoldEl.innerText = String(Math.max(0, Math.floor(this.data.gold || 0)));
+        const shopGemsEl = document.getElementById('shop-gems');
+        if (shopGemsEl) shopGemsEl.innerText = String(Math.max(0, Math.floor(this.data.gems || 0)));
+
+        const metaGoldEl = document.getElementById('meta-gold');
+        if (metaGoldEl) metaGoldEl.innerText = String(Math.max(0, Math.floor(this.data.gold || 0)));
+        const metaGemsEl = document.getElementById('meta-gems');
+        if (metaGemsEl) metaGemsEl.innerText = String(Math.max(0, Math.floor(this.data.gems || 0)));
+
+        const panelGoldEl = document.getElementById('panel-gold-val');
+        if (panelGoldEl) panelGoldEl.innerText = String(Math.max(0, Math.floor(this.data.gold || 0)));
+        const panelGemsEl = document.getElementById('panel-gems-val');
+        if (panelGemsEl) panelGemsEl.innerText = String(Math.max(0, Math.floor(this.data.gems || 0)));
 
         // Hub (main menu) progress info
         const selectedStageEl = document.getElementById('hub-selected-stage');
@@ -1869,7 +1899,10 @@ class SaveManager {
                 const curLv = s.metaLv;
                 const unlocked = s.unlocked;
                 const isMax = curLv >= META_SKILL_MAX_LEVEL;
-                const cost = isMax ? 0 : metaGetLevelUpCost(s.id, curLv);
+                const cost = isMax ? { gold: 0, gems: 0 } : metaGetLevelUpCost(s.id, curLv);
+                const costGold = Math.max(0, Math.floor(cost.gold || 0));
+                const costGems = Math.max(0, Math.floor(cost.gems || 0));
+                const costText = (costGems > 0) ? `金币${costGold} + 宝石${costGems}` : `金币${costGold}`;
                 const nextDesc = metaDescribeNextLevel(s.id, curLv);
 
                 return `
@@ -1880,7 +1913,7 @@ class SaveManager {
                         </div>
                         <div class="skill-upgrade-desc">${safe(nextDesc)}</div>
                         <div class="skill-upgrade-actions">
-                            <button class="small-btn" data-up="1" ${isMax ? 'disabled' : ''}>${isMax ? '已满级' : (unlocked ? `升级到Lv.${curLv + 1}(碎片${cost})` : `解锁(碎片${cost})`)}</button>
+                            <button class="small-btn" data-up="1" ${isMax ? 'disabled' : ''}>${isMax ? '已满级' : (unlocked ? `升级到Lv.${curLv + 1}（${costText}）` : `解锁（${costText}）`)}</button>
                         </div>
                     </div>
                 `;
@@ -5042,10 +5075,10 @@ class Game {
 
     getDifficultyDefs() {
         return {
-            easy:   { id: 'easy',   name: '新手', enemyHpMul: 0.85, enemyDmgMul: 0.85, spawnMul: 0.92, eliteMul: 0.80, shardMul: 0.90 },
-            normal: { id: 'normal', name: '中级', enemyHpMul: 1.00, enemyDmgMul: 1.00, spawnMul: 1.00, eliteMul: 1.00, shardMul: 1.00 },
-            hard:   { id: 'hard',   name: '高级', enemyHpMul: 1.15, enemyDmgMul: 1.15, spawnMul: 1.12, eliteMul: 1.15, shardMul: 1.15 },
-            hell:   { id: 'hell',   name: '地狱', enemyHpMul: 1.35, enemyDmgMul: 1.35, spawnMul: 1.25, eliteMul: 1.35, shardMul: 1.35 },
+            easy:   { id: 'easy',   name: '新手', enemyHpMul: 0.85, enemyDmgMul: 0.85, spawnMul: 0.92, eliteMul: 0.80, shardMul: 0.90, goldMul: 0.92, gemMul: 0.92 },
+            normal: { id: 'normal', name: '中级', enemyHpMul: 1.00, enemyDmgMul: 1.00, spawnMul: 1.00, eliteMul: 1.00, shardMul: 1.00, goldMul: 1.00, gemMul: 1.00 },
+            hard:   { id: 'hard',   name: '高级', enemyHpMul: 1.15, enemyDmgMul: 1.15, spawnMul: 1.12, eliteMul: 1.15, shardMul: 1.15, goldMul: 1.08, gemMul: 1.06 },
+            hell:   { id: 'hell',   name: '地狱', enemyHpMul: 1.35, enemyDmgMul: 1.35, spawnMul: 1.25, eliteMul: 1.35, shardMul: 1.35, goldMul: 1.16, gemMul: 1.12 },
         };
     }
 
@@ -5268,12 +5301,20 @@ class Game {
             rewardEl.innerHTML = '';
             const defs = this.getDifficultyDefs();
             const diff = defs[String(did || 'easy')] || defs.easy;
-            const mul = (diff && diff.shardMul !== undefined) ? diff.shardMul : 1;
-            const shards = Math.floor((2 + Math.floor(meta.id * 0.9)) * mul);
-            const div = document.createElement('div');
-            div.className = 'reward-preview-chip';
-            div.innerHTML = `<b title="技能碎片">💠</b> +${shards}`;
-            rewardEl.appendChild(div);
+            const gmul = (diff && diff.goldMul !== undefined) ? diff.goldMul : 1;
+            const mmul = (diff && diff.gemMul !== undefined) ? diff.gemMul : 1;
+            const gold = Math.floor((18 + Math.floor(meta.id * 6.5)) * gmul);
+            const gemChance = Math.min(0.25, (0.05 + meta.id * 0.004) * mmul);
+
+            const div1 = document.createElement('div');
+            div1.className = 'reward-preview-chip';
+            div1.innerHTML = `<b title="金币">🪙</b> +${gold}`;
+            rewardEl.appendChild(div1);
+
+            const div2 = document.createElement('div');
+            div2.className = 'reward-preview-chip';
+            div2.innerHTML = `<b title="宝石">💎</b> ${Math.round(gemChance * 100)}%`;
+            rewardEl.appendChild(div2);
         }
 
         const row = document.getElementById('difficulty-row');
@@ -5355,6 +5396,9 @@ class Game {
 
         // 新轮回开始：清空精英池（精英池只在本次轮回内累计）
         this.eliteBlueprints = [];
+        // Economy run tracking
+        this.runGoldGained = 0;
+        this.runGemsGained = 0;
         // 使用用户选择的关卡与难度
         this.selectedStage = Math.max(1, Math.floor(this.selectedStage || 1));
         this.difficultyId = this.difficultyId || 'normal';
@@ -5422,6 +5466,21 @@ class Game {
         this.updateHUDWave();
         this.updateComboUI();
         this.renderSkillPanel();
+    }
+
+    // --- Economy (gold/gems) ---
+    grantGold(a) {
+        const add = Math.max(0, Math.floor(a || 0));
+        if (add <= 0) return;
+        this.runGoldGained = (this.runGoldGained || 0) + add;
+        if (this.saveManager && typeof this.saveManager.addGold === 'function') this.saveManager.addGold(add);
+    }
+
+    grantGems(a) {
+        const add = Math.max(0, Math.floor(a || 0));
+        if (add <= 0) return;
+        this.runGemsGained = (this.runGemsGained || 0) + add;
+        if (this.saveManager && typeof this.saveManager.addGems === 'function') this.saveManager.addGems(add);
     }
 
     nextStage() {
@@ -5905,6 +5964,8 @@ class Game {
         const safe = (s) => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
         const sm = this.saveManager;
         const shards = sm ? Math.max(0, Math.floor(sm.data.skillShards || 0)) : 0;
+        const gold = sm ? Math.max(0, Math.floor(sm.data.gold || 0)) : 0;
+        const gems = sm ? Math.max(0, Math.floor(sm.data.gems || 0)) : 0;
         const unlockedStage = sm ? sm.getUnlockedStageMax() : 1;
         const lastStage = sm ? Math.max(1, Math.floor(sm.data.lastSelectedStage || 1)) : 1;
         const lastDiffId = sm ? String(sm.data.lastSelectedDifficulty || 'normal') : 'normal';
@@ -5923,7 +5984,9 @@ class Game {
         const rows = [];
         // 基础个人信息（局外）
         rows.push(`<div class="stat-row" style="grid-column: 1 / -1;"><span>👤 玩家信息</span><span class="stat-val">玩家</span></div>`);
-        rows.push(`<div class="stat-row"><span>💠 碎片</span><span class="stat-val">${safe(shards)}</span></div>`);
+        rows.push(`<div class="stat-row"><span>💠 技能碎片</span><span class="stat-val">${safe(shards)}</span></div>`);
+        rows.push(`<div class="stat-row"><span>🪙 金币</span><span class="stat-val">${safe(gold)}</span></div>`);
+        rows.push(`<div class="stat-row"><span>💎 宝石</span><span class="stat-val">${safe(gems)}</span></div>`);
         rows.push(`<div class="stat-row"><span>🗺 已解锁</span><span class="stat-val">第 ${safe(unlockedStage)} 关</span></div>`);
         rows.push(`<div class="stat-row" style="grid-column: 1 / -1;"><span>🎯 上次选择</span><span class="stat-val">第 ${safe(lastStage)} 关 · ${safe(lastDiff)}</span></div>`);
         rows.push(`<div class="stat-row" style="grid-column: 1 / -1;"><span>🧬 传承装备</span><span class="stat-val">${heirloomNames.length ? safe(heirloomNames.join('、')) : '暂无'}</span></div>`);
@@ -6115,6 +6178,13 @@ class Game {
                 }
                 const defs = this.getDifficultyDefs();
                 const diff = defs[String(this.difficultyId || 'easy')] || defs.easy;
+                // New economy clear reward (gold + rare gem chance)
+                const gmul = (diff && diff.goldMul !== undefined) ? diff.goldMul : 1;
+                const mmul = (diff && diff.gemMul !== undefined) ? diff.gemMul : 1;
+                this.grantGold(Math.floor((18 + Math.floor(this.stage * 6.5)) * gmul));
+                if (Math.random() < Math.min(0.25, (0.05 + this.stage * 0.004) * mmul)) this.grantGems(1);
+
+                // Keep legacy shards reward (skill upgrade currency)
                 const mul = (diff && diff.shardMul !== undefined) ? diff.shardMul : 1;
                 if (this.saveManager) this.saveManager.addSkillShards(Math.floor((2 + Math.floor(this.stage * 0.9)) * mul));
                 if (this.saveManager) {
@@ -6433,13 +6503,25 @@ class Game {
         // Player kill triggers (build synergies)
         if (this.player && typeof this.player.onKill === 'function') this.player.onKill(enemy);
 
-        // Skill shards (small drip): elites > normal. Boss handled in bossDefeated().
-        if (this.saveManager) {
-            if (enemy && enemy.type === 'elite') {
-                this.saveManager.addSkillShards(2);
-            } else if (enemy && enemy.type !== 'boss') {
-                // 轻度随机掉落，避免刷屏
-                if (Math.random() < 0.06) this.saveManager.addSkillShards(1);
+        // Economy drop: gold for all kills; gems are rare (more likely from elites/bosses).
+        if (enemy && enemy.type !== 'boss') {
+            const s = Math.max(1, Math.floor(this.stage || 1));
+            const w = Math.max(1, Math.floor(this.wave || 1));
+            const diff = this.getDifficulty ? this.getDifficulty() : { id: 'normal' };
+            const diffMul = (diff && diff.id === 'easy') ? 0.92 : ((diff && diff.id === 'hell') ? 1.10 : 1.0);
+
+            if (enemy.type === 'elite') {
+                const gold = Math.floor((18 + s * 4 + w * 0.6) * diffMul);
+                this.grantGold(gold);
+                const gemChance = Math.min(0.22, 0.10 + s * 0.004);
+                if (Math.random() < gemChance) this.grantGems(1);
+            } else {
+                // Normal mobs: small steady gold
+                const gold = Math.floor((1 + Math.min(4, s * 0.35) + Math.random() * 1.2) * diffMul);
+                this.grantGold(gold);
+                // Ultra-rare gem from trash (keeps "惊喜" but won't flood)
+                const gemChance = Math.min(0.008, 0.0015 + s * 0.00025);
+                if (Math.random() < gemChance) this.grantGems(1);
             }
         }
     }
@@ -6452,8 +6534,8 @@ class Game {
         
         // Reward: Heal a bit
         this.player.heal(10);
-        // Reward: small shards drip for milestone
-        this.saveManager?.addSkillShards(1);
+        // Reward: small gold drip for milestone (avoid mixing with skill shards economy)
+        this.grantGold(8 + Math.floor((this.stage || 1) * 1.2));
     }
 
     updateComboUI() {
@@ -6496,8 +6578,16 @@ class Game {
             this.saveManager.markStageDifficultyCleared(this.stage, this.difficultyId || 'easy');
         }
 
-        // Boss 奖励：技能碎片（关卡外解锁用）
-        const diff = this.getDifficulty ? this.getDifficulty() : { shardMul: 1 };
+        // Boss 奖励：金币/宝石（新经济系统），技能碎片仍保留用于局外升级（不与金币/宝石绑定）
+        const s = Math.max(1, Math.floor(this.stage || 1));
+        const diff = this.getDifficulty ? this.getDifficulty() : { id: 'normal', shardMul: 1 };
+        const goldMul = (diff && diff.id === 'easy') ? 0.92 : ((diff && diff.id === 'hell') ? 1.10 : 1.0);
+        this.grantGold(Math.floor((90 + s * 22) * goldMul));
+        this.grantGems(1); // boss 至少 1 宝石
+        // 额外宝石：后期略提高
+        if (Math.random() < Math.min(0.35, 0.12 + s * 0.01)) this.grantGems(1);
+
+        // 保留原有碎片奖励（用于技能升级）
         const mul = (diff && diff.shardMul !== undefined) ? diff.shardMul : 1;
         this.saveManager.addSkillShards(Math.floor((6 + Math.floor(this.stage * 2)) * mul));
         // 通关解锁下一关（存档持久化）
@@ -7101,7 +7191,12 @@ class Game {
         const td = document.getElementById('time-display');
         const finalTime = td ? td.innerText : "00:00";
         document.getElementById('final-time').innerText = finalTime;
-        document.getElementById('gained-points').innerText = shards;
+        const gp = document.getElementById('gained-points');
+        if (gp) gp.innerText = shards;
+        const gg = document.getElementById('gained-gold');
+        if (gg) gg.innerText = String(Math.max(0, Math.floor(this.runGoldGained || 0)));
+        const gG = document.getElementById('gained-gems');
+        if (gG) gG.innerText = String(Math.max(0, Math.floor(this.runGemsGained || 0)));
         document.getElementById('game-over-modal').classList.remove('hidden');
     }
 

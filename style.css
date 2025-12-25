@@ -297,6 +297,8 @@ body {
 .hub-pill-label { opacity: 0.75; }
 .hub-pill-value { color: rgba(255,255,255,0.95); }
 #meta-skill-shards { color: #ffd700; }
+#meta-gold { color: #ffd700; }
+#meta-gems { color: #8be9fd; }
 .currency-icon { color: #ffd700; font-weight: 1000; }
 .ui-sprite { display: none; }
 
