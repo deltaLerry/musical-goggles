@@ -1845,9 +1845,18 @@ body {
 #hud {
     position: absolute; top: 0; left: 0; width: 100%; height: 100%;
     pointer-events: none; padding: 15px; box-sizing: border-box;
-    display: flex; flex-direction: column; justify-content: space-between;
+    display: block;
 }
-#top-bar { display: flex; justify-content: space-between; align-items: flex-start; pointer-events: auto; }
+#top-bar {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    right: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    pointer-events: auto;
+}
 #stats-summary { font-size: 18px; font-weight: bold; text-shadow: 1px 1px 2px black; display: flex; gap: 20px; }
 #controls-top { display: flex; gap: 10px; }
 
@@ -1975,8 +1984,66 @@ body {
 #boss-hp-bar-bg { width: 100%; height: 20px; background: rgba(0,0,0,0.7); border: 1px solid #ff5252; border-radius: 10px; overflow: hidden; }
 #boss-hp-bar { width: 100%; height: 100%; background: #ff5252; transition: width 0.1s; }
 
-#bottom-bar { width: 100%; display: flex; flex-direction: column; align-items: center; pointer-events: auto; }
-#equipment-container { display: flex; gap: 5px; margin-bottom: 5px; background: rgba(0,0,0,0.3); padding: 5px; border-radius: 5px; min-height: 45px; }
+#bottom-bar {
+    position: absolute;
+    left: 50%;
+    bottom: 12px;
+    transform: translateX(-50%);
+    width: min(520px, 92vw);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: stretch;
+    pointer-events: auto;
+}
+
+#hp-bar-container {
+    width: 100%;
+    height: 18px;
+    background: rgba(0,0,0,0.70);
+    border-radius: 10px;
+    overflow: hidden;
+    position: relative;
+    border: 1px solid rgba(255, 82, 82, 0.35);
+    display: flex;
+}
+#hp-badge {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 30px;
+    background: rgba(255, 82, 82, 0.20);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-weight: 1000;
+    font-size: 12px;
+    z-index: 2;
+}
+#hp-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, rgba(76,175,80,0.92), rgba(255, 82, 82, 0.85));
+    transition: width 0.18s;
+    margin-left: 30px;
+}
+#hp-text {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 1000;
+    text-shadow: 1px 1px 1px black;
+    z-index: 1;
+    padding-left: 30px;
+    white-space: nowrap;
+}
 
 .equip-slot {
     width: 45px; height: 45px; background: rgba(0,0,0,0.6); border: 1px solid #888;
@@ -1990,7 +2057,7 @@ body {
 }
 
 #exp-bar-container {
-    width: 80%; height: 20px; background: rgba(0,0,0,0.7); border-radius: 10px;
+    width: 100%; height: 18px; background: rgba(0,0,0,0.7); border-radius: 10px;
     overflow: hidden; position: relative; border: 1px solid #444; display: flex;
 }
 #level-badge {
@@ -2002,7 +2069,56 @@ body {
     position: absolute; top: 0; left: 0; width: 100%; height: 100%;
     display: flex; align-items: center; justify-content: center;
     font-size: 10px; font-weight: bold; text-shadow: 1px 1px 1px black; z-index: 1; padding-left: 30px;
+    white-space: nowrap;
 }
+
+/* Mobile controls: keep joystick anchored to bottom-left */
+#joystick-zone {
+    left: 0;
+    bottom: 0;
+    width: 70vw;
+    height: 58vh;
+    transform: none;
+}
+#joystick {
+    left: 96px;
+    bottom: 16px;
+    transform: none;
+}
+
+/* Panel status in-run: avoid ugly wraps */
+.panel-view[data-view="status"] .panel-card-desc b,
+.panel-view[data-view="status"] .panel-card-desc {
+    word-break: keep-all;
+}
+.panel-view[data-view="status"] .panel-inline-kv {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 6px;
+    font-size: 12px;
+    color: rgba(255,255,255,0.74);
+    white-space: nowrap;
+}
+.panel-view[data-view="status"] .panel-inline-kv .v { color: rgba(255, 215, 64, 0.92); font-weight: 1000; }
+.panel-view[data-view="status"] .panel-inrun-inv {
+    margin-top: 10px;
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+}
+.panel-view[data-view="status"] .panel-inrun-inv::-webkit-scrollbar { height: 6px; }
+.panel-view[data-view="status"] .panel-inrun-inv::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 999px; }
+.panel-view[data-view="status"] .panel-pause-actions {
+    margin-top: 12px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+.panel-view[data-view="status"] .panel-pause-actions .small-btn { flex: 1 1 0; }
 
 /* Modal Styles */
 .modal {
@@ -2060,8 +2176,10 @@ body {
 .upgrade-card.insight .upgrade-left .skill-sigil { color: rgba(3, 169, 244, 0.98); }
 
 .upgrade-right { flex: 1 1 auto; min-width: 0; }
-.upgrade-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.upgrade-title { font-weight: 1000; color: rgba(255,255,255,0.94); letter-spacing: 0.2px; }
+.upgrade-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.upgrade-title-row { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 auto; }
+.upgrade-title { font-weight: 1000; color: rgba(255,255,255,0.94); letter-spacing: 0.2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.upgrade-inline-tags { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; flex: 0 0 auto; }
 .upgrade-meta { font-weight: 1000; font-size: 12px; color: rgba(255,255,255,0.72); white-space: nowrap; }
 .upgrade-tags { margin-top: 6px; display: flex; gap: 8px; flex-wrap: wrap; }
 .upgrade-tag {
@@ -2295,10 +2413,16 @@ button:hover { background: #45a049; }
     #stats-summary { font-size: 14px; gap: 10px; }
     #boss-hp-container { top: 62px; width: min(320px, 86vw); }
 
-    /* Bottom area: leave room for joystick */
-    #bottom-bar { padding-bottom: 140px; }
-    #exp-bar-container { width: min(360px, 86vw); height: 18px; }
-    #equipment-container { min-height: 42px; }
+    /* Bottom bars: avoid joystick area, stay pinned to bottom */
+    #bottom-bar {
+        left: auto;
+        right: 12px;
+        bottom: 12px;
+        transform: none;
+        width: min(360px, 56vw);
+    }
+    #exp-bar-container { height: 18px; }
+    #hp-bar-container { height: 18px; }
 
     /* Joystick: classic mobile portrait (bottom-left) */
     #mobile-controls { z-index: 45; }
@@ -2311,8 +2435,8 @@ button:hover { background: #45a049; }
     }
     #joystick {
         left: 98px;
-        bottom: 98px;
-        transform: translate(-50%, -50%);
+        bottom: 16px;
+        transform: none;
         width: 150px;
         height: 150px;
     }

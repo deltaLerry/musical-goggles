@@ -327,6 +327,7 @@
                 </div>
                 <div id="controls-top">
                     <button id="pause-btn" class="icon-btn">⏸</button>
+                    <button id="hud-settings-btn" class="icon-btn" title="设置">⚙</button>
                     <button id="sound-btn" class="icon-btn" title="音效">🔊</button>
                 </div>
             </div>
@@ -352,7 +353,11 @@
 
             <!-- Bottom Area: Equipment & EXP -->
             <div id="bottom-bar">
-                <div id="equipment-container"></div>
+                <div id="hp-bar-container" aria-label="生命条">
+                    <div id="hp-badge">❤</div>
+                    <div id="hp-bar"></div>
+                    <div id="hp-text">HP</div>
+                </div>
                 <div id="exp-bar-container">
                     <div id="exp-bar"></div>
                     <div id="exp-text">EXP</div>

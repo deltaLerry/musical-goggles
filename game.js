@@ -2042,6 +2042,8 @@ class Projectile {
         this.stunDuration = options.stunDuration;
         this.dot = options.dot; // { dps, duration, slow }
         this.markedForDeletion = false;
+        // Subtle particle trail for player projectiles
+        this._trailT = 0;
 
         let angle = options.angle;
         if (angle === undefined && target) angle = Math.atan2(target.y - y, target.x - x);
@@ -2051,6 +2053,24 @@ class Projectile {
     update(dt) {
         this.x += this.vx * dt;
         this.y += this.vy * dt;
+
+        // Low-key trail (only for player projectiles)
+        if (!this.isEnemy && this.game && typeof this.game.spawnParticles === 'function') {
+            this._trailT += dt;
+            if (this._trailT >= 0.06) {
+                this._trailT = 0;
+                // 1 tiny dot, fast fade
+                this.game.spawnParticles(this.x, this.y, {
+                    count: 1,
+                    color: (this.dot ? 'rgba(124, 179, 66, 0.85)' : this.color),
+                    size: Math.max(1.4, this.radius * 0.35),
+                    life: 0.22,
+                    speed: 18,
+                    spread: Math.PI,
+                    alpha: 0.45
+                });
+            }
+        }
 
         if (this.isEnemy) {
             if (checkCollision(this, this.game.player)) {
@@ -2064,6 +2084,18 @@ class Projectile {
                     e.takeDamage(this.damage);
                     // 战斗音效：命中敌人（概率触发 + SoundManager 内部强限流，避免嘈杂）
                     if (this.game && this.game.sfx && Math.random() < 0.22) this.game.sfx.play('hit');
+                    // Subtle hit spark
+                    if (this.game && typeof this.game.spawnParticles === 'function') {
+                        this.game.spawnParticles(e.x, e.y, {
+                            count: 5,
+                            color: (this.dot ? 'rgba(124, 179, 66, 0.90)' : this.color),
+                            size: 2.2,
+                            life: 0.28,
+                            speed: 120,
+                            spread: Math.PI * 2,
+                            alpha: 0.65
+                        });
+                    }
                     this.markedForDeletion = true;
                     if (this.type === 'dart') { e.stunned = Math.max(e.stunned || 0, this.stunDuration || 1.0); }
                     if (this.dot && e && typeof e.applyDot === 'function') e.applyDot(this.dot.dps || 0, this.dot.duration || 0, this.dot.slow || 0);
@@ -2083,6 +2115,54 @@ class Projectile {
     draw(ctx) {
         ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
         ctx.fillStyle = this.color; ctx.fill();
+    }
+}
+
+class Particle {
+    constructor(game, x, y, options = {}) {
+        this.game = game;
+        this.x = x; this.y = y;
+        this.vx = options.vx || 0;
+        this.vy = options.vy || 0;
+        this.r = Math.max(0.8, options.r || 2);
+        this.c = options.c || 'rgba(255,255,255,0.8)';
+        this.life = Math.max(0.08, options.life || 0.28);
+        this.t = 0;
+        this.drag = (options.drag !== undefined) ? options.drag : 0.92;
+        this.g = options.g || 0; // gravity
+        this.alpha = (options.alpha !== undefined) ? options.alpha : 0.7;
+        this.shape = options.shape || 'dot'; // dot | leaf
+        this.rot = options.rot || 0;
+        this.spin = options.spin || 0;
+        this.markedForDeletion = false;
+    }
+    update(dt) {
+        this.t += dt;
+        if (this.t >= this.life) { this.markedForDeletion = true; return; }
+        this.vx *= Math.pow(this.drag, dt * 60);
+        this.vy = this.vy * Math.pow(this.drag, dt * 60) + this.g * dt;
+        this.x += this.vx * dt;
+        this.y += this.vy * dt;
+        this.rot += this.spin * dt;
+    }
+    draw(ctx) {
+        const a = (1 - (this.t / Math.max(0.001, this.life)));
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(1, this.alpha * a));
+        ctx.fillStyle = this.c;
+        if (this.shape === 'leaf') {
+            ctx.translate(this.x, this.y);
+            ctx.rotate(this.rot);
+            ctx.beginPath();
+            // tiny leaf/teardrop
+            ctx.ellipse(0, 0, this.r * 1.2, this.r * 0.75, 0, 0, Math.PI * 2);
+            ctx.fill();
+        } else {
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.restore();
     }
 }
 
@@ -3178,6 +3258,25 @@ class Player {
                 const cd = (params && params.cooldown !== undefined) ? params.cooldown : def.cooldown;
                 if (this.skillTimers[id] >= cd) {
                     def.onActivate(this.game, lvl, params);
+                    // Subtle skill activation sparkle (not flashy)
+                    if (this.game && typeof this.game.spawnParticles === 'function') {
+                        const arch = (typeof getSkillArchUI === 'function') ? getSkillArchUI(id, def) : 'insight';
+                        const c = (arch === 'swift')
+                            ? 'rgba(255, 138, 101, 0.85)'
+                            : (arch === 'stone')
+                                ? 'rgba(225, 182, 90, 0.85)'
+                                : 'rgba(129, 212, 250, 0.85)';
+                        this.game.spawnParticles(this.x, this.y - this.radius * 0.2, {
+                            count: 4,
+                            color: c,
+                            size: 2.0,
+                            life: 0.28,
+                            speed: 90,
+                            spread: Math.PI * 2,
+                            alpha: 0.55,
+                            shape: (arch === 'swift') ? 'leaf' : 'dot'
+                        });
+                    }
                     this.skillTimers[id] = 0;
                 }
             }
@@ -3194,6 +3293,18 @@ class Player {
                 speed: this.projectileSpeed,
                 dot: this.poisonOnHit ? { ...this.poisonOnHit } : null
             }));
+            // Tiny muzzle sparkle (very low cost)
+            if (this.game && typeof this.game.spawnParticles === 'function') {
+                this.game.spawnParticles(this.x, this.y, {
+                    count: 2,
+                    color: this.poisonOnHit ? 'rgba(124, 179, 66, 0.80)' : 'rgba(255, 245, 157, 0.75)',
+                    size: 1.8,
+                    life: 0.18,
+                    speed: 70,
+                    spread: Math.PI * 2,
+                    alpha: 0.45
+                });
+            }
             // 战斗音效：发射（概率触发 + 限流，避免嘈杂）
             if (this.game && this.game.sfx && Math.random() < 0.28) this.game.sfx.play('shot');
             if (this.splitShotCount > 0) {
@@ -3217,32 +3328,165 @@ class Player {
     }
 
     draw(ctx) {
+        const r = this.radius;
+        const headR = r * 0.95;
+        const bodyW = r * 1.05;
+        const bodyH = r * 0.95;
+
+        const axis = (this.game && this.game.input && this.game.input.getMoveAxis) ? this.game.input.getMoveAxis() : { x: 0, y: 0 };
+        const tilt = Math.max(-0.18, Math.min(0.18, (axis.x || 0) * 0.14));
+
         ctx.save();
         ctx.translate(this.x, this.y);
-        
-        // Body (Teemo coat)
-        ctx.beginPath(); ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
-        ctx.fillStyle = '#8D6E63'; // Brownish coat
-        ctx.fill();
-        ctx.strokeStyle = '#5D4037'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.rotate(tilt);
 
-        // Hat
+        // Shadow
+        ctx.save();
+        ctx.globalAlpha = 0.22;
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
         ctx.beginPath();
-        ctx.arc(0, -5, this.radius * 0.9, 0, Math.PI, true);
-        ctx.fillStyle = '#388E3C'; // Green hat
+        ctx.ellipse(0, r * 0.85, r * 0.85, r * 0.35, 0, 0, Math.PI * 2);
         ctx.fill();
-        
-        // Goggles
-        ctx.beginPath(); ctx.arc(-8, -2, 6, 0, Math.PI*2); ctx.fillStyle = '#42A5F5'; ctx.fill(); ctx.strokeStyle='#fff'; ctx.stroke();
-        ctx.beginPath(); ctx.arc(8, -2, 6, 0, Math.PI*2); ctx.fillStyle = '#42A5F5'; ctx.fill(); ctx.strokeStyle='#fff'; ctx.stroke();
-        
-        // Ears
+        ctx.restore();
+
+        // Body (small torso) + scarf
+        ctx.save();
+        ctx.translate(0, r * 0.55);
         ctx.beginPath();
-        ctx.moveTo(-15, -10); ctx.lineTo(-20, -25); ctx.lineTo(-5, -15);
-        ctx.moveTo(15, -10); ctx.lineTo(20, -25); ctx.lineTo(5, -15);
-        ctx.fillStyle = '#F5F5F5'; // White fur
+        ctx.ellipse(0, 0, bodyW * 0.55, bodyH * 0.55, 0, 0, Math.PI * 2);
+        ctx.fillStyle = '#A97C50'; // warm brown
         ctx.fill();
-        
+        ctx.strokeStyle = 'rgba(0,0,0,0.18)'; ctx.lineWidth = 2; ctx.stroke();
+
+        // Scarf
+        ctx.beginPath();
+        ctx.ellipse(0, -bodyH * 0.25, bodyW * 0.55, bodyH * 0.22, 0, 0, Math.PI * 2);
+        ctx.fillStyle = '#E53935';
+        ctx.fill();
+        ctx.globalAlpha = 0.85;
+        ctx.beginPath();
+        ctx.moveTo(bodyW * 0.05, -bodyH * 0.05);
+        ctx.quadraticCurveTo(bodyW * 0.55, bodyH * 0.15, bodyW * 0.15, bodyH * 0.55);
+        ctx.quadraticCurveTo(bodyW * 0.05, bodyH * 0.25, bodyW * 0.05, -bodyH * 0.05);
+        ctx.fill();
+        ctx.restore();
+
+        // Ears (behind head)
+        const earOuter = '#F2E7D5';
+        const earInner = '#F8BBD0';
+        const earStroke = 'rgba(0,0,0,0.18)';
+        const ear = (sx) => {
+            ctx.save();
+            ctx.translate(sx * headR * 0.72, -headR * 0.65);
+            ctx.rotate(sx * -0.12);
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.quadraticCurveTo(sx * headR * 0.22, -headR * 0.55, sx * headR * 0.08, -headR * 0.98);
+            ctx.quadraticCurveTo(sx * -headR * 0.18, -headR * 0.62, sx * -headR * 0.25, -headR * 0.18);
+            ctx.closePath();
+            ctx.fillStyle = earOuter;
+            ctx.fill();
+            ctx.strokeStyle = earStroke; ctx.lineWidth = 2; ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(sx * -headR * 0.10, -headR * 0.22);
+            ctx.quadraticCurveTo(sx * headR * 0.08, -headR * 0.55, sx * headR * 0.03, -headR * 0.78);
+            ctx.quadraticCurveTo(sx * -headR * 0.10, -headR * 0.58, sx * -headR * 0.16, -headR * 0.30);
+            ctx.closePath();
+            ctx.fillStyle = earInner;
+            ctx.fill();
+            ctx.restore();
+        };
+        ear(-1); ear(1);
+
+        // Head (big)
+        const grad = ctx.createRadialGradient(-headR * 0.25, -headR * 0.35, headR * 0.15, 0, 0, headR * 1.2);
+        grad.addColorStop(0, '#FFF3E0');
+        grad.addColorStop(1, '#E7D6C3');
+        ctx.beginPath();
+        ctx.arc(0, 0, headR, 0, Math.PI * 2);
+        ctx.fillStyle = grad;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.20)'; ctx.lineWidth = 2; ctx.stroke();
+
+        // Hat + brim
+        ctx.save();
+        ctx.translate(0, -headR * 0.20);
+        ctx.beginPath();
+        ctx.ellipse(0, 0, headR * 0.95, headR * 0.70, 0, Math.PI, 0);
+        ctx.fillStyle = '#2E7D32';
+        ctx.fill();
+        // brim
+        ctx.beginPath();
+        ctx.ellipse(0, headR * 0.08, headR * 0.92, headR * 0.22, 0, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0,0,0,0.15)';
+        ctx.fill();
+        // tiny feather
+        ctx.rotate(-0.35);
+        ctx.beginPath();
+        ctx.moveTo(headR * 0.15, -headR * 0.70);
+        ctx.quadraticCurveTo(headR * 0.55, -headR * 0.82, headR * 0.35, -headR * 1.15);
+        ctx.quadraticCurveTo(headR * 0.12, -headR * 0.92, headR * 0.15, -headR * 0.70);
+        ctx.fillStyle = '#FF7043';
+        ctx.globalAlpha = 0.85;
+        ctx.fill();
+        ctx.restore();
+
+        // Goggles strap
+        ctx.save();
+        ctx.globalAlpha = 0.65;
+        ctx.strokeStyle = '#3E2723';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(0, -headR * 0.06, headR * 0.78, Math.PI * 0.12, Math.PI * 0.88);
+        ctx.stroke();
+        ctx.restore();
+
+        // Goggles lenses
+        const lens = (sx) => {
+            ctx.save();
+            ctx.translate(sx * headR * 0.46, -headR * 0.08);
+            // frame
+            ctx.beginPath();
+            ctx.arc(0, 0, headR * 0.28, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(0,0,0,0.18)';
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 2; ctx.stroke();
+            // glass
+            const g2 = ctx.createRadialGradient(-headR * 0.10, -headR * 0.12, headR * 0.05, 0, 0, headR * 0.32);
+            g2.addColorStop(0, 'rgba(255,255,255,0.75)');
+            g2.addColorStop(0.35, 'rgba(129,212,250,0.85)');
+            g2.addColorStop(1, 'rgba(3,169,244,0.35)');
+            ctx.beginPath();
+            ctx.arc(0, 0, headR * 0.23, 0, Math.PI * 2);
+            ctx.fillStyle = g2;
+            ctx.fill();
+            // highlight
+            ctx.globalAlpha = 0.35;
+            ctx.beginPath();
+            ctx.arc(-headR * 0.08, -headR * 0.08, headR * 0.08, 0, Math.PI * 2);
+            ctx.fillStyle = '#fff';
+            ctx.fill();
+            ctx.restore();
+        };
+        lens(-1); lens(1);
+
+        // Face: nose + smile
+        ctx.save();
+        ctx.translate(0, headR * 0.18);
+        // nose
+        ctx.beginPath();
+        ctx.arc(0, 0, headR * 0.08, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(60,35,20,0.65)';
+        ctx.fill();
+        // smile
+        ctx.strokeStyle = 'rgba(60,35,20,0.55)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(0, headR * 0.05, headR * 0.18, 0, Math.PI);
+        ctx.stroke();
+        ctx.restore();
+
         ctx.restore();
     }
 
@@ -3319,6 +3563,10 @@ class Game {
         this.cameraMarginY = 0.28;
         // Smooth follow speed (higher => snappier). Only matters when camera needs to move.
         this.cameraSmooth = 14;
+
+        // Particles (subtle UX feedback; capped)
+        this.particles = [];
+        this.particleCap = 220;
 
         this.input = new InputHandler();
         this.setupMobileControls();
@@ -4114,9 +4362,62 @@ class Game {
                 return it ? it.name : hid;
             });
 
+            const fmtTime = (sec) => {
+                const s = Math.max(0, Math.floor(Number(sec || 0)));
+                const m = Math.floor(s / 60);
+                const r = s % 60;
+                return `${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`;
+            };
+
+            const gc = document.getElementById('game-container');
+            const inGame = !!gc && !gc.classList.contains('hidden');
+            const p = this.player;
+            const hasRun = inGame && p && typeof p === 'object';
+            const diffMap2 = { easy: '新手', normal: '中级', hard: '高级', hell: '地狱' };
+            const curDiff = diffMap2[String(this.difficultyId || 'normal')] || '中级';
+
+            const invHtml = hasRun
+                ? (Array.isArray(p.inventory) && p.inventory.length
+                    ? `<div class="panel-inrun-inv">
+                        ${p.inventory.map(slot => {
+                            const name = slot?.item?.name || '';
+                            const lvl = Math.max(1, Math.floor(slot?.level || 1));
+                            const isH = !!slot?.item?.isHeirloom;
+                            return `<div class="equip-slot ${isH ? 'heirloom' : ''}" title="${safe(name)}">${safe(String(name)[0] || '？')}<div class="lvl-badge">${safe(lvl)}</div></div>`;
+                        }).join('')}
+                    </div>`
+                    : `<div class="panel-note">当前暂无局内装备（击杀 Boss 可获得）。</div>`)
+                : '';
+
             root.innerHTML = `
+                ${hasRun ? `
                 <div class="panel-card">
-                    <div class="panel-card-title">玩家信息</div>
+                    <div class="panel-card-title">暂停 · 局内状态</div>
+                    <div class="panel-card-desc">
+                        <span style="display:inline-flex; align-items:center; gap:10px;">
+                            <span class="hub-avatar-ring" style="width:38px;height:38px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.14);background:rgba(255,255,255,0.06);">
+                                <span class="hub-avatar" style="font-size:18px;">👤</span>
+                            </span>
+                            <b>玩家</b>
+                        </span>
+                    </div>
+                    <div class="panel-inline-kv"><span>关卡</span><span class="v">第 ${safe(this.stage)} 关 · ${safe(curDiff)}</span></div>
+                    <div class="panel-inline-kv"><span>波次</span><span class="v">${safe(this.wave)}/${safe(this.wavesTotal || 10)}</span></div>
+                    <div class="panel-inline-kv"><span>时间</span><span class="v">${safe(fmtTime(this.gameTime))}</span></div>
+                    <div class="panel-inline-kv"><span>等级</span><span class="v">Lv.${safe(p.level)}</span></div>
+                    <div class="panel-inline-kv"><span>生命</span><span class="v">${safe(`${Math.ceil(p.hp)}/${Math.ceil(p.maxHp)}`)}</span></div>
+                    <div class="panel-card-desc">本局状态：攻击 ${safe(Math.floor(p.damage))} · 攻速 ${safe((1 / p.attackCooldown).toFixed(2))}/s · 移速 ${safe(Math.floor(p.speed))} · 减伤 ${safe(Math.floor(p.damageReduction))}</div>
+                    ${invHtml}
+                    <div class="panel-pause-actions">
+                        <button id="panel-resume-btn" class="small-btn">继续游戏</button>
+                        <button class="small-btn" data-nav="settings">设置</button>
+                        <button id="panel-quit-btn" class="small-btn danger">放弃轮回</button>
+                    </div>
+                </div>
+                ` : ''}
+
+                <div class="panel-card">
+                    <div class="panel-card-title">玩家信息（局外）</div>
                     <div class="panel-card-desc">👤 玩家：<b>玩家</b></div>
                     <div class="panel-card-desc">💠 碎片：<b>${safe(shards)}</b></div>
                     <div class="panel-card-desc">🗺 已解锁：第 <b>${safe(unlockedStage)}</b> 关</div>
@@ -4126,9 +4427,13 @@ class Game {
                 <div class="panel-card">
                     <div class="panel-card-title">传承装备</div>
                     <div class="panel-card-desc">${heirloomNames.length ? safe(heirloomNames.join('、')) : '暂无已激活传承'}</div>
-                    <div class="panel-note">关卡内状态已从此处移除；请在关卡内点击暂停查看。</div>
                 </div>
             `;
+
+            const resumeBtn = document.getElementById('panel-resume-btn');
+            if (resumeBtn) resumeBtn.onclick = () => { this.togglePause(); };
+            const quitBtn = document.getElementById('panel-quit-btn');
+            if (quitBtn) quitBtn.onclick = () => { this.sfx?.play('close'); this.returnToMenu(); };
         };
 
         const syncPanelUI = () => {
@@ -4186,6 +4491,17 @@ class Game {
             panel.classList.add('hidden');
             panel.setAttribute('aria-hidden', 'true');
             panelStack.length = 0;
+
+            // 关卡内：如果此时是暂停状态，关闭面板等同于“继续游戏”
+            try {
+                const gc = document.getElementById('game-container');
+                const inGame = !!gc && !gc.classList.contains('hidden');
+                if (inGame && this.state === 'PAUSED') {
+                    this.state = 'PLAYING';
+                    this.updateMobileControlsVisibility();
+                    this.lastTime = performance.now();
+                }
+            } catch (_) { }
         };
 
         // Expose panel APIs to class methods (e.g., openStageSelect)
@@ -4264,6 +4580,19 @@ class Game {
         document.getElementById('quit-btn').onclick = () => { this.sfx.play('close'); this.returnToMenu(); };
         // stats-btn 已移除（关卡内去掉个人信息展示按钮）
 
+        // 关卡内设置：复用大厅面板系统
+        const hudSettingsBtn = document.getElementById('hud-settings-btn');
+        if (hudSettingsBtn) {
+            hudSettingsBtn.onclick = () => {
+                if (this.state === 'PLAYING') {
+                    this.state = 'PAUSED';
+                    this.updateMobileControlsVisibility();
+                }
+                this.sfx?.play('open');
+                if (typeof this._openPanel === 'function') this._openPanel('settings');
+            };
+        }
+
         // 关卡选择界面
         const stageBack = document.getElementById('stage-back-btn');
         if (stageBack) stageBack.onclick = () => { this.sfx.play('close'); this.closeStageSelect(); };
@@ -4323,6 +4652,43 @@ class Game {
         this.loop = this.loop.bind(this);
         this.lastTime = performance.now(); // Init lastTime before loop
         requestAnimationFrame(this.loop);
+    }
+
+    spawnParticles(x, y, opts = {}) {
+        const count = Math.max(1, Math.min(14, Math.floor(opts.count || 4)));
+        const baseColor = opts.color || 'rgba(255,255,255,0.85)';
+        const size = Math.max(0.9, Number(opts.size || 2));
+        const life = Math.max(0.08, Number(opts.life || 0.26));
+        const speed = Math.max(0, Number(opts.speed || 80));
+        const spread = (opts.spread !== undefined) ? Number(opts.spread) : (Math.PI * 2);
+        const alpha = (opts.alpha !== undefined) ? Number(opts.alpha) : 0.7;
+        const shape = opts.shape || 'dot';
+
+        if (!this.particles) this.particles = [];
+        for (let i = 0; i < count; i++) {
+            const ang = (Math.random() * spread);
+            const sp = speed * (0.45 + Math.random() * 0.75);
+            const vx = Math.cos(ang) * sp + (opts.vx || 0);
+            const vy = Math.sin(ang) * sp + (opts.vy || 0);
+            const p = new Particle(this, x, y, {
+                vx, vy,
+                r: size * (0.75 + Math.random() * 0.65),
+                c: baseColor,
+                life: life * (0.85 + Math.random() * 0.5),
+                drag: (opts.drag !== undefined) ? opts.drag : 0.90,
+                g: opts.g || 0,
+                alpha,
+                shape,
+                rot: Math.random() * Math.PI * 2,
+                spin: (Math.random() * 2 - 1) * 5.0
+            });
+            this.particles.push(p);
+        }
+
+        // Hard cap: drop oldest
+        if (this.particles.length > (this.particleCap || 220)) {
+            this.particles.splice(0, this.particles.length - (this.particleCap || 220));
+        }
     }
 
     addSkillFxLine(x1, y1, x2, y2, color) {
@@ -5049,6 +5415,7 @@ class Game {
         // Stage objects reset
         this.enemies = []; this.projectiles = []; this.expOrbs = [];
         this.aoeZones = []; this.mushrooms = []; this.potions = [];
+        this.particles = [];
         this.spawnTimer = 0;
         this.spawnBudget = 0;
         this.intensitySmooth = 0;
@@ -5333,12 +5700,20 @@ class Game {
         if (this.state === 'PLAYING') {
             this.state = 'PAUSED';
             this.updateMobileControlsVisibility();
-            document.getElementById('pause-modal').classList.remove('hidden');
-            this.updateStatsPanel();
+            // 统一面板体验：复用大厅面板（状态页）作为暂停界面
+            if (typeof this._openPanel === 'function') {
+                this._openPanel('status');
+                if (typeof this._syncPanelUI === 'function') this._syncPanelUI();
+            } else {
+                // Fallback：老暂停弹窗
+                document.getElementById('pause-modal').classList.remove('hidden');
+                this.updateStatsPanel();
+            }
             this.sfx?.play('pause');
         } else if (this.state === 'PAUSED') {
             this.state = 'PLAYING';
             this.updateMobileControlsVisibility();
+            if (typeof this._closePanel === 'function') this._closePanel();
             document.getElementById('pause-modal').classList.add('hidden');
             this.lastTime = performance.now();
             this.sfx?.play('resume');
@@ -5474,6 +5849,15 @@ class Game {
         this.mushrooms = this.mushrooms.filter(m => !m.markedForDeletion);
         this.potions.forEach(p => p.update(dt));
         this.potions = this.potions.filter(p => !p.markedForDeletion);
+
+        // Particles update (subtle, capped)
+        if (this.particles && this.particles.length > 0) {
+            this.particles.forEach(p => p.update(dt));
+            this.particles = this.particles.filter(p => !p.markedForDeletion);
+            if (this.particles.length > (this.particleCap || 220)) {
+                this.particles.splice(0, this.particles.length - (this.particleCap || 220));
+            }
+        }
 
         // Skill FX update
         if (this.skillFx && this.skillFx.length > 0) {
@@ -6315,12 +6699,14 @@ class Game {
                 <div class="upgrade-left">${skillSigilSvg(id)}</div>
                 <div class="upgrade-right">
                     <div class="upgrade-head">
-                        <div class="upgrade-title">${safe(def.name || id)}</div>
+                        <div class="upgrade-title-row">
+                            <div class="upgrade-title">${safe(def.name || id)}</div>
+                            <div class="upgrade-inline-tags">
+                                <span class="upgrade-tag ${safe(arch)}">${safe(archLabelUI(arch))}</span>
+                                <span class="upgrade-tag">${safe(typeLabel)}</span>
+                            </div>
+                        </div>
                         <div class="upgrade-meta">Lv.${safe(lvl)}</div>
-                    </div>
-                    <div class="upgrade-tags">
-                        <span class="upgrade-tag ${safe(arch)}">${safe(archLabelUI(arch))}</span>
-                        <span class="upgrade-tag">${safe(typeLabel)}</span>
                     </div>
                     <div class="upgrade-desc">${safe(def.desc ? def.desc(lvl) : '')}</div>
                 </div>
@@ -6340,12 +6726,14 @@ class Game {
                 <div class="upgrade-left">${skillSigilSvg('vitality')}</div>
                 <div class="upgrade-right">
                     <div class="upgrade-head">
-                        <div class="upgrade-title">生命回复</div>
+                        <div class="upgrade-title-row">
+                            <div class="upgrade-title">生命回复</div>
+                            <div class="upgrade-inline-tags">
+                                <span class="upgrade-tag stone">磐石</span>
+                                <span class="upgrade-tag">补给</span>
+                            </div>
+                        </div>
                         <div class="upgrade-meta">立即</div>
-                    </div>
-                    <div class="upgrade-tags">
-                        <span class="upgrade-tag stone">磐石</span>
-                        <span class="upgrade-tag">补给</span>
                     </div>
                     <div class="upgrade-desc">回复 50% 生命</div>
                 </div>
@@ -6385,6 +6773,11 @@ class Game {
 
     updateUI() {
         document.getElementById('hp-display').innerText = `${Math.ceil(this.player.hp)}/${Math.ceil(this.player.maxHp)}`;
+        const hpPct = (this.player.maxHp > 0) ? (this.player.hp / this.player.maxHp) * 100 : 0;
+        const hpBar = document.getElementById('hp-bar');
+        const hpText = document.getElementById('hp-text');
+        if (hpBar) hpBar.style.width = `${Math.max(0, Math.min(100, hpPct))}%`;
+        if (hpText) hpText.innerText = `${Math.ceil(this.player.hp)}/${Math.ceil(this.player.maxHp)}`;
         const pct = (this.player.exp / this.player.expToNextLevel) * 100;
         document.getElementById('exp-bar').style.width = `${pct}%`;
         document.getElementById('level-badge').innerText = this.player.level;
@@ -6399,15 +6792,10 @@ class Game {
     }
 
     updateHUDInventory() {
+        // HUD 装备栏已移除：装备展示融合到“暂停 · 局内状态”面板中。
         const c = document.getElementById('equipment-container');
+        if (!c) return;
         c.innerHTML = '';
-        this.player.inventory.forEach(slot => {
-            const div = document.createElement('div');
-            div.className = `equip-slot ${slot.item.isHeirloom ? 'heirloom' : ''}`;
-            div.innerHTML = `${slot.item.name[0]}<div class="lvl-badge">${slot.level}</div>`;
-            div.title = `${slot.item.name}\n${slot.item.desc}`;
-            c.appendChild(div);
-        });
     }
 
     draw() {
@@ -6486,6 +6874,13 @@ class Game {
         this.expOrbs.forEach(e => e.draw(this.ctx));
         this.enemies.forEach(e => e.draw(this.ctx));
         this.projectiles.forEach(p => p.draw(this.ctx));
+        if (this.particles && this.particles.length > 0) {
+            // Particles: slightly glowy, but subtle
+            this.ctx.save();
+            this.ctx.globalCompositeOperation = 'lighter';
+            this.particles.forEach(p => p.draw(this.ctx));
+            this.ctx.restore();
+        }
 
         // Skill FX (world space)
         if (this.skillFx && this.skillFx.length > 0) {
@@ -6593,7 +6988,15 @@ class InputHandler {
     constructor() {
         this.k = {};
         this.axis = { x: 0, y: 0 };
-        window.addEventListener('keydown', e => { if(e.key==='Escape') game.togglePause(); this.k[e.key] = true; });
+        window.addEventListener('keydown', e => {
+            if (e.key === 'Escape') {
+                // If panel is open, let panel handler close it (and it will resume if we were paused in-game).
+                const panel = document.getElementById('secondary-panel');
+                const panelOpen = !!panel && !panel.classList.contains('hidden');
+                if (!panelOpen) game.togglePause();
+            }
+            this.k[e.key] = true;
+        });
         window.addEventListener('keyup', e => this.k[e.key] = false);
     }
     isKeyDown(k) { return !!this.k[k]; }
