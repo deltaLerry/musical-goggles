@@ -3084,21 +3084,24 @@ class Game {
 
         // Skill filter state (two-level: type -> arch)
         if (!this._panelSkillUI || typeof this._panelSkillUI !== 'object') {
-            this._panelSkillUI = { type: 'active', arch: 'sorcery' };
+            this._panelSkillUI = { type: 'active', arch: 'swift' };
         }
         const panelUI = this._panelSkillUI;
 
         const getArchetype = (id, def) => {
             const map = {
-                // Active => Sorcery (巫术)
-                poison_nova: 'sorcery',
-                blinding_dart: 'sorcery',
-                mushroom_trap: 'sorcery',
-                chain_lightning: 'sorcery',
-                frost_nova: 'sorcery',
-                blade_storm: 'sorcery',
-                healing_totem: 'sorcery',
-                meteor_strike: 'sorcery',
+                // Active re-class (no "巫术"): Swift / Stone / Insight
+                // Swift: aggressive / burst / tempo
+                blinding_dart: 'swift',
+                chain_lightning: 'swift',
+                blade_storm: 'swift',
+                meteor_strike: 'swift',
+                // Stone: sustain / defense-ish
+                healing_totem: 'stone',
+                // Insight: control / zoning / strategy
+                poison_nova: 'insight',
+                mushroom_trap: 'insight',
+                frost_nova: 'insight',
 
                 // Offensive / tempo => Swift (迅猛)
                 sharpness: 'swift',
@@ -3123,20 +3126,20 @@ class Game {
                 arcane_amp: 'insight',
             };
             if (map[id]) return map[id];
-            if (def && def.type === 'active') return 'sorcery';
+            if (def && def.type === 'active') return 'swift';
             const text = ((def && def.name) ? def.name : '') + ' ' + ((def && def.unlockDesc) ? def.unlockDesc : '');
             if (/经验|拾取|冷却|技能|奥术|掌控|冥想|智慧/.test(text)) return 'insight';
             if (/生命|减伤|再生|铁皮|强壮|体魄/.test(text)) return 'stone';
             return 'swift';
         };
 
-        const archLabel = (a) => ({ sorcery: '巫术', swift: '迅猛', stone: '磐石', insight: '启迪' }[a] || '巫术');
-        const archOrder = ['sorcery', 'swift', 'stone', 'insight'];
+        const archLabel = (a) => ({ swift: '迅猛', stone: '磐石', insight: '启迪' }[a] || '迅猛');
+        const archOrder = ['swift', 'stone', 'insight'];
 
         const renderSkillTabs = (allSkills) => {
             if (!panelSkillTypeTabsEl || !panelSkillArchTabsEl) return;
             const typeCounts = { active: 0, passive: 0 };
-            const archCounts = { sorcery: 0, swift: 0, stone: 0, insight: 0 };
+            const archCounts = { swift: 0, stone: 0, insight: 0 };
             allSkills.forEach(s => {
                 typeCounts[s.type] = (typeCounts[s.type] || 0) + 1;
                 archCounts[s.arch] = (archCounts[s.arch] || 0) + 1;
@@ -3159,14 +3162,14 @@ class Game {
             panelSkillTypeTabsEl.querySelectorAll('button[data-type]').forEach(btn => {
                 btn.onclick = () => {
                     panelUI.type = btn.getAttribute('data-type') || 'active';
-                    // default arch per type: keep current if exists, else sorcery
-                    if (!panelUI.arch) panelUI.arch = 'sorcery';
+                    // default arch per type: keep current if exists, else swift
+                    if (!panelUI.arch) panelUI.arch = 'swift';
                     renderSkillsList();
                 };
             });
             panelSkillArchTabsEl.querySelectorAll('button[data-arch]').forEach(btn => {
                 btn.onclick = () => {
-                    panelUI.arch = btn.getAttribute('data-arch') || 'sorcery';
+                    panelUI.arch = btn.getAttribute('data-arch') || 'swift';
                     renderSkillsList();
                 };
             });
@@ -3203,13 +3206,13 @@ class Game {
                 const lv = s.metaLv;
                 const unlocked = s.unlocked;
                 const next = metaDescribeNextLevel(s.id, lv);
-                const cls = `panel-skill-card ${unlocked ? '' : 'locked'}`;
+                const cls = `panel-skill-card ${safeHtml(s.arch)} ${unlocked ? '' : 'locked'}`;
                 const meta = unlocked ? `Lv.${lv}/${META_SKILL_MAX_LEVEL}` : `未解锁 · Lv.${lv}/${META_SKILL_MAX_LEVEL}`;
                 const type = getSkillTypeLabel(s.def);
                 return `
                     <button class="${cls}" data-nav="skillDetail" data-skill="${safeHtml(s.id)}">
                         <div class="panel-skill-top">
-                            <div class="panel-skill-name">${safeHtml(s.def.name)} <span class="panel-tag">${safeHtml(type)}</span> <span class="panel-tag">${safeHtml(archLabel(s.arch))}</span></div>
+                            <div class="panel-skill-name">${safeHtml(s.def.name)} <span class="panel-tag">${safeHtml(type)}</span> <span class="panel-tag ${safeHtml(s.arch)}">${safeHtml(archLabel(s.arch))}</span></div>
                             <div class="panel-skill-meta">${safeHtml(meta)}</div>
                         </div>
                         <div class="panel-skill-desc">${safeHtml(next)}</div>
@@ -3480,10 +3483,12 @@ class Game {
                 statsLines = unlocked ? ['暂无可展示的数值项'] : ['未解锁'];
             }
 
+            const arch = getArchetype(sid, def);
             panelSkillDetailEl.innerHTML = `
-                <div class="panel-skill-hero">
-                    <div class="panel-skill-hero-title">${safeHtml(def.name)} <span class="panel-tag">${safeHtml(getSkillTypeLabel(def))}</span></div>
-                    <div class="panel-skill-hero-sub">${safeHtml(unlocked ? `Lv.${lv}/${META_SKILL_MAX_LEVEL}` : `未解锁 · Lv.${lv}/${META_SKILL_MAX_LEVEL}`)} · 已消耗碎片 ${safeHtml(spent)} · 当前碎片 ${safeHtml(shards)}</div>
+                <div class="panel-skill-hero ${safeHtml(arch)}">
+                    <div class="panel-skill-hero-title">${safeHtml(def.name)} <span class="panel-tag">${safeHtml(getSkillTypeLabel(def))}</span> <span class="panel-tag ${safeHtml(arch)}">${safeHtml(archLabel(arch))}</span></div>
+                    <div class="panel-skill-corner"><span>💠</span><span>${safeHtml(shards)}</span></div>
+                    <div class="panel-skill-hero-sub">${safeHtml(unlocked ? `Lv.${lv}/${META_SKILL_MAX_LEVEL}` : `未解锁 · Lv.${lv}/${META_SKILL_MAX_LEVEL}`)} · 已消耗碎片 ${safeHtml(spent)}</div>
                 </div>
 
                 <div class="panel-skill-block">

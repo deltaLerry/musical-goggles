@@ -644,10 +644,40 @@ body {
 .panel-tab:hover { background: rgba(255,255,255,0.10); border-color: rgba(255,215,0,0.22); transform: translateY(-1px); }
 .panel-tab.active { background: rgba(255,215,0,0.12); border-color: rgba(255,215,0,0.40); color: #fff; }
 .panel-tab .badge { margin-left: 6px; opacity: 0.75; font-weight: 1000; }
-.panel-tab.sorcery.active { border-color: rgba(171, 71, 188, 0.55); background: rgba(171, 71, 188, 0.14); }
 .panel-tab.insight.active { border-color: rgba(3, 169, 244, 0.55); background: rgba(3, 169, 244, 0.14); }
 .panel-tab.stone.active { border-color: rgba(144, 164, 174, 0.55); background: rgba(144, 164, 174, 0.14); }
 .panel-tab.swift.active { border-color: rgba(255, 215, 64, 0.55); background: rgba(255, 215, 64, 0.12); }
+
+/* Make "启迪" feel more like a rune school (subtle, not flashy) */
+.panel-tab.insight {
+    position: relative;
+    overflow: hidden;
+}
+.panel-tab.insight.active {
+    background:
+        radial-gradient(circle at 30% 25%, rgba(3, 169, 244, 0.22) 0%, rgba(0,0,0,0.0) 55%),
+        rgba(3, 169, 244, 0.12);
+}
+.panel-tab.insight.active::before {
+    content: '';
+    position: absolute;
+    inset: -20px;
+    background:
+        repeating-linear-gradient(135deg, rgba(3,169,244,0.10) 0 6px, rgba(3,169,244,0.0) 6px 14px),
+        radial-gradient(circle at 80% 20%, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.0) 55%);
+    opacity: 0.85;
+    pointer-events: none;
+}
+.panel-tab.stone.active {
+    background:
+        radial-gradient(circle at 35% 30%, rgba(144, 164, 174, 0.18) 0%, rgba(0,0,0,0.0) 60%),
+        rgba(144, 164, 174, 0.10);
+}
+.panel-tab.swift.active {
+    background:
+        radial-gradient(circle at 30% 25%, rgba(255, 215, 64, 0.18) 0%, rgba(0,0,0,0.0) 60%),
+        rgba(255, 215, 64, 0.10);
+}
 
 .panel-confirm {
     position: fixed;
@@ -740,6 +770,9 @@ body {
     text-align: left;
 }
 .panel-skill-card:hover { transform: translateY(-2px); border-color: rgba(255,215,0,0.18); background: rgba(255,255,255,0.06); }
+.panel-skill-card.insight:hover { border-color: rgba(3, 169, 244, 0.28); }
+.panel-skill-card.swift:hover { border-color: rgba(255, 215, 64, 0.28); }
+.panel-skill-card.stone:hover { border-color: rgba(144, 164, 174, 0.30); }
 .panel-skill-card.locked { opacity: 0.78; }
 .panel-skill-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .panel-skill-name { font-weight: 1000; font-size: 14px; }
@@ -755,6 +788,21 @@ body {
     font-size: 11px;
     color: rgba(255,255,255,0.78);
 }
+.panel-tag.insight {
+    border-color: rgba(3, 169, 244, 0.35);
+    background: rgba(3, 169, 244, 0.10);
+    color: rgba(186, 234, 255, 0.95);
+}
+.panel-tag.swift {
+    border-color: rgba(255, 215, 64, 0.35);
+    background: rgba(255, 215, 64, 0.10);
+    color: rgba(255, 244, 200, 0.95);
+}
+.panel-tag.stone {
+    border-color: rgba(144, 164, 174, 0.38);
+    background: rgba(144, 164, 174, 0.10);
+    color: rgba(230, 240, 244, 0.92);
+}
 
 .panel-skill-detail {
     display: flex;
@@ -767,7 +815,27 @@ body {
     background: radial-gradient(circle at 25% 15%, rgba(255, 215, 64, 0.14) 0%, rgba(0,0,0,0.0) 55%),
                 rgba(0,0,0,0.22);
     padding: 14px 14px;
+    position: relative;
 }
+.panel-skill-hero.insight { border-color: rgba(3, 169, 244, 0.20); }
+.panel-skill-hero.swift { border-color: rgba(255, 215, 64, 0.22); }
+.panel-skill-hero.stone { border-color: rgba(144, 164, 174, 0.22); }
+.panel-skill-corner {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.14);
+    background: rgba(0,0,0,0.22);
+    color: rgba(255,255,255,0.92);
+    font-weight: 1000;
+    font-size: 12px;
+}
+.panel-skill-corner span:first-child { opacity: 0.9; }
 .panel-skill-hero-title { font-weight: 1000; font-size: 18px; color: rgba(255,255,255,0.92); }
 .panel-skill-hero-sub { margin-top: 6px; font-weight: 900; font-size: 12px; color: rgba(255,255,255,0.72); }
 .panel-skill-block {
