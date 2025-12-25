@@ -10,17 +10,7 @@
     <!-- Damage Overlay -->
     <div id="damage-overlay"></div>
 
-    <!-- Force Landscape Overlay (mobile) -->
-    <div id="rotate-overlay" class="hidden" aria-hidden="true">
-        <div class="rotate-card" role="dialog" aria-modal="true" aria-label="横屏提示">
-            <div class="rotate-icon">📱↻</div>
-            <div class="rotate-title">请横屏游玩</div>
-            <div class="rotate-desc">本游戏为横屏手游体验。将手机旋转为横屏后自动继续。</div>
-            <button id="rotate-try-btn" class="rotate-btn">点击尝试锁定横屏</button>
-            <button id="rotate-continue-btn" class="rotate-btn secondary">我已横屏，继续</button>
-            <div class="rotate-hint">若浏览器不支持强制锁定，请手动旋转屏幕。</div>
-        </div>
-    </div>
+    <!-- Portrait-first: no forced landscape overlay -->
 
     <!-- Splash / Loading Screen -->
     <div id="splash-screen">
@@ -312,14 +302,14 @@
                     </label>
                     <button id="skill-upgrade-expand-all" class="small-btn">全部展开</button>
                     <button id="skill-upgrade-collapse-all" class="small-btn">全部折叠</button>
-                </div>
+            </div>
             </div>
             <div class="skill-upgrade-actions">
                 <button id="skill-upgrade-reset-btn" class="small-btn danger">重置局外升级（返还碎片）</button>
             </div>
             <div id="skill-upgrade-list"></div>
         </div>
-
+        
     </div>
 
     <!-- Start Bonus Modal -->

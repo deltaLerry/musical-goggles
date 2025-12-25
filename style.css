@@ -10,67 +10,7 @@ body {
 
 .hidden { display: none !important; }
 
-/* Force Landscape Overlay */
-#rotate-overlay {
-    position: absolute;
-    inset: 0;
-    z-index: 999; /* above everything */
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: radial-gradient(circle at 25% 15%, rgba(255, 215, 64, 0.16) 0%, rgba(0,0,0,0.0) 45%),
-                radial-gradient(circle at 80% 80%, rgba(3, 169, 244, 0.18) 0%, rgba(0,0,0,0.0) 48%),
-                rgba(0,0,0,0.86);
-    padding: calc(env(safe-area-inset-top) + 18px) calc(env(safe-area-inset-right) + 18px)
-             calc(env(safe-area-inset-bottom) + 18px) calc(env(safe-area-inset-left) + 18px);
-    box-sizing: border-box;
-}
-.rotate-card {
-    width: min(520px, 92vw);
-    border-radius: 18px;
-    background: rgba(10, 14, 24, 0.78);
-    border: 1px solid rgba(255,255,255,0.14);
-    box-shadow: 0 22px 70px rgba(0,0,0,0.70);
-    padding: 22px 18px;
-    text-align: center;
-    backdrop-filter: blur(6px);
-}
-.rotate-icon { font-size: 40px; }
-.rotate-title {
-    margin-top: 8px;
-    font-size: 22px;
-    font-weight: 1000;
-    letter-spacing: 0.5px;
-}
-.rotate-desc {
-    margin-top: 10px;
-    color: rgba(255,255,255,0.85);
-    font-size: 14px;
-    line-height: 1.45;
-}
-.rotate-btn {
-    margin-top: 14px;
-    width: 100%;
-    padding: 12px 14px;
-    font-size: 16px;
-    font-weight: 900;
-    border-radius: 12px;
-    border: 1px solid rgba(255,255,255,0.16);
-    background: linear-gradient(135deg, rgba(255, 193, 7, 0.95), rgba(255, 87, 34, 0.92));
-    box-shadow: 0 12px 24px rgba(0,0,0,0.35);
-}
-.rotate-btn.secondary {
-    margin-top: 10px;
-    background: rgba(255,255,255,0.10);
-    border: 1px solid rgba(255,255,255,0.18);
-    box-shadow: none;
-}
-.rotate-btn:active { transform: translateY(1px); }
-.rotate-hint {
-    margin-top: 10px;
-    font-size: 12px;
-    color: rgba(255,255,255,0.65);
-}
+/* Portrait-first: removed forced landscape overlay styles */
 
 /* Canvas: improve mobile touch handling */
 #gameCanvas {
@@ -131,108 +71,9 @@ body {
     box-shadow: 0 8px 20px rgba(0,0,0,0.35);
 }
 
-/* Mobile landscape tuning */
-@media (orientation: landscape) and (max-width: 1024px) {
-    #hud { padding: 8px; }
-    #stats-summary { font-size: 14px; gap: 10px; }
-    #game-messages { top: 70px; right: 12px; }
-    #boss-hp-container { top: 48px; width: 320px; }
-    #exp-bar-container { width: 70%; }
+/* Portrait-first: remove landscape-only tuning (handled by portrait overrides below) */
 
-    #joystick-zone {
-        width: 70vw;
-        height: 70vh;
-        left: 50%;
-        transform: translateX(-50%);
-    }
-    #joystick {
-        width: 130px;
-        height: 130px;
-        left: 50%;
-        bottom: 18px;
-        transform: translateX(-50%);
-    }
-    #joystick-knob {
-        width: 60px;
-        height: 60px;
-    }
-}
-
-/* Mobile-first: true landscape game layout */
-@media (pointer: coarse) and (orientation: landscape) {
-    :root {
-        --safe-top: env(safe-area-inset-top);
-        --safe-right: env(safe-area-inset-right);
-        --safe-bottom: env(safe-area-inset-bottom);
-        --safe-left: env(safe-area-inset-left);
-    }
-
-    body {
-        /* prevent accidental text selection / callout in WebViews */
-        -webkit-touch-callout: none;
-        -webkit-user-select: none;
-        user-select: none;
-    }
-
-    /* Make all full-screen screens respect safe area */
-    #splash-screen,
-    #main-menu,
-    #stage-select-screen,
-    #shop-screen,
-    #lobby-screen,
-    #game-container {
-        padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
-        box-sizing: border-box;
-    }
-
-    /* Splash: wider and more "gamey" in landscape */
-    .splash-inner {
-        width: min(860px, 86vw);
-        padding: 26px 22px;
-    }
-    .splash-title { font-size: clamp(44px, 6.2vh, 64px); }
-
-    /* Hub: use full landscape real estate */
-    .hub-wrap.stage-focus {
-        width: min(1280px, 96vw);
-        padding: 16px 16px 12px 16px;
-    }
-    .hub-shell {
-        grid-template-columns: 104px 1fr 104px;
-        gap: 12px;
-    }
-    .hub-side { padding: 8px 6px; border-radius: 16px; }
-    .hub-stage-card { border-radius: 18px; }
-
-    /* Stage select: keep card centered and reduce vertical scroll */
-    #stage-select-screen h1 { font-size: 40px; margin: 10px 0 6px; }
-    #stage-select-screen .subtitle { margin-bottom: 10px; }
-    .stage-carousel { gap: 10px; }
-    .stage-card { width: min(860px, 72vw); }
-
-    /* Shop: more horizontal density */
-    #shop-screen { justify-content: flex-start; }
-    #shop-screen h2 { font-size: 28px; margin: 12px 0 6px; }
-    #skill-upgrade-section { width: min(1200px, 96vw); }
-
-    /* In-game HUD: make bottom bar sit above joystick, avoid overlap */
-    #hud { padding: 10px; }
-    #bottom-bar { padding-bottom: 120px; }
-    #exp-bar-container { width: min(560px, 68vw); }
-
-    /* Joystick: keep bottom center, but smaller + higher to avoid exp bar */
-    #joystick { bottom: 96px; }
-    #joystick-zone { height: 55vh; }
-
-    /* Modals: full-screen sheet style for mobile landscape */
-    .modal-content {
-        min-width: 0;
-        width: min(760px, 92vw);
-        max-width: 92vw;
-        padding: 20px 16px;
-        border-radius: 16px;
-    }
-}
+/* Portrait-first: removed landscape-only layout block */
 
 /* Overlays */
 #damage-overlay {
@@ -1772,21 +1613,7 @@ body {
     box-shadow: 0 6px 14px rgba(0,0,0,0.35);
 }
 
-@media (orientation: landscape) and (max-width: 1024px) {
-    #active-skills {
-        top: 82px;
-        right: 10px;
-        gap: 8px;
-    }
-    .skill-icon {
-        width: 48px;
-        height: 48px;
-    }
-    .skill-label {
-        inset: 7px;
-        font-size: 18px;
-    }
-}
+/* Portrait-first: removed landscape-only active skill tuning */
 
 #combo-container {
     font-size: 32px; font-weight: bold; color: #ffeb3b; 
@@ -1886,16 +1713,28 @@ button {
 }
 button:hover { background: #45a049; }
 
-/* ===== Mobile (Landscape) Final Overrides - keep at file end for priority ===== */
-@media (pointer: coarse) and (orientation: landscape) {
+/* ===== Mobile (Portrait) Final Overrides - keep at file end for priority ===== */
+@media (pointer: coarse) and (orientation: portrait) {
     :root {
         --safe-top: env(safe-area-inset-top);
         --safe-right: env(safe-area-inset-right);
         --safe-bottom: env(safe-area-inset-bottom);
         --safe-left: env(safe-area-inset-left);
+
+        --ui-bg: rgba(0,0,0,0.42);
+        --ui-border: rgba(255,255,255,0.14);
+        --ui-shadow: 0 18px 60px rgba(0,0,0,0.55);
+        --text-strong: rgba(255,255,255,0.96);
+        --text-dim: rgba(255,255,255,0.78);
     }
 
-    /* Full-screen pages: safe-area aware */
+    body {
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+    }
+
+    /* Full screens safe-area */
     #splash-screen,
     #main-menu,
     #secondary-panel,
@@ -1908,30 +1747,101 @@ button:hover { background: #45a049; }
     }
 
     /* Touch targets */
-    .icon-btn { width: 44px; height: 44px; font-size: 20px; }
-    .big-btn { min-width: 220px; font-size: 20px; padding: 12px 26px; border-radius: 14px; }
+    .icon-btn { width: 44px; height: 44px; font-size: 20px; border-radius: 14px; }
+    button { font-size: 16px; }
+    .big-btn { min-width: 0; width: min(360px, 86vw); font-size: 18px; padding: 12px 16px; border-radius: 14px; }
 
-    /* Modals: turn into landscape-friendly sheets */
-    .modal { padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left); box-sizing: border-box; }
-    .modal-content {
-        width: min(820px, 92vw);
-        max-width: 92vw;
-        min-width: 0;
-        padding: 18px 16px;
+    /* Splash: vertical rhythm */
+    .splash-inner {
+        width: min(420px, 90vw);
+        padding: 26px 18px;
+        border-radius: 18px;
+    }
+    .splash-title { font-size: 44px; letter-spacing: 0.5px; }
+    .splash-subtitle { letter-spacing: 3px; }
+
+    /* Hub: convert 3-column into portrait stack */
+    .hub-wrap.stage-focus { width: min(520px, 92vw); padding: 14px 12px 12px; border-radius: 18px; }
+    .hub-shell {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+    .hub-side.left,
+    .hub-side.right {
+        flex-direction: row;
+        justify-content: space-between;
+        padding: 10px 10px;
         border-radius: 16px;
     }
-    #upgrade-options, #inventory-grid { max-height: 56vh; }
+    .hub-side-stack {
+        flex-direction: row;
+        gap: 10px;
+        max-height: none;
+        overflow: visible;
+    }
+    .hub-center { gap: 12px; }
+    .hub-stage-card { border-radius: 18px; }
 
-    /* Stage select + lobby: reduce vertical bloat */
+    /* Panel sheet: bottom-up drawer feels native in portrait */
+    .panel-sheet {
+        width: 100%;
+        max-width: 100%;
+        height: min(86vh, 860px);
+        border-top-left-radius: 18px;
+        border-top-right-radius: 18px;
+        border-bottom-left-radius: 0;
+        border-bottom-right-radius: 0;
+        align-self: flex-end;
+    }
+
+    /* Stage select: comfortable vertical spacing */
     #stage-select-screen h1 { font-size: 38px; margin: 10px 0 6px; }
-    #lobby-screen h1 { font-size: 38px; margin: 10px 0 6px; }
+    #stage-select-screen .subtitle { margin-bottom: 10px; font-size: 14px; letter-spacing: 2px; }
+    .stage-carousel { gap: 8px; align-items: stretch; }
+    .stage-card { width: min(420px, 88vw); }
 
-    /* In-game HUD spacing: reserve bottom area for joystick */
+    /* Shop: reduce density, keep filters reachable */
+    #shop-screen h2 { font-size: 26px; margin: 12px 0 8px; }
+    #skill-upgrade-section { width: min(520px, 92vw); }
+    .skill-upgrade-tools { gap: 10px; flex-wrap: wrap; }
+    .skill-upgrade-search { width: 100%; }
+
+    /* In-game HUD: portrait-friendly */
     #hud { padding: 10px; }
-    #bottom-bar { padding-bottom: 120px; }
-    #equipment-container { min-height: 40px; }
+    #stats-summary { font-size: 14px; gap: 10px; }
+    #boss-hp-container { top: 62px; width: min(320px, 86vw); }
 
-    /* Joystick placement: bottom center */
-    #joystick { bottom: 96px; }
-    #joystick-zone { height: 55vh; }
+    /* Bottom area: leave room for joystick */
+    #bottom-bar { padding-bottom: 140px; }
+    #exp-bar-container { width: min(360px, 86vw); height: 18px; }
+    #equipment-container { min-height: 42px; }
+
+    /* Joystick: classic mobile portrait (bottom-left) */
+    #mobile-controls { z-index: 45; }
+    #joystick-zone {
+        left: 0;
+        bottom: 0;
+        width: 62vw;
+        height: 46vh;
+        transform: none;
+    }
+    #joystick {
+        left: 98px;
+        bottom: 98px;
+        transform: translate(-50%, -50%);
+        width: 150px;
+        height: 150px;
+    }
+    #joystick-knob { width: 66px; height: 66px; }
+
+    /* Modals: portrait sheet */
+    .modal { padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left); box-sizing: border-box; }
+    .modal-content {
+        width: min(520px, 92vw);
+        max-width: 92vw;
+        min-width: 0;
+        padding: 18px 14px;
+        border-radius: 16px;
+    }
+    #upgrade-options, #inventory-grid { max-height: 62vh; }
 }

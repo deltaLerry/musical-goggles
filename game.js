@@ -3254,9 +3254,6 @@ class Game {
         this.setupMobileControls();
         this.updateMobileControlsVisibility();
 
-        // Mobile: force landscape UX (best-effort lock + hard gate overlay in portrait)
-        this.initLandscapeGate();
-
         // 音效系统（仅提示音；不含受伤/被攻击音效）
         this.sfx = new SoundManager();
         this.saveManager = new SaveManager();
@@ -3268,7 +3265,6 @@ class Game {
         const splash = document.getElementById('splash-screen');
         if (splash) {
             splash.onclick = () => {
-                this.tryLockLandscape();
                 splash.classList.add('hidden');
                 document.getElementById('main-menu').classList.remove('hidden');
                 this.saveManager.updateUI();
@@ -3279,9 +3275,9 @@ class Game {
             document.getElementById('main-menu').classList.remove('hidden');
         }
 
-        document.getElementById('start-game-btn').onclick = () => { this.tryLockLandscape(); this.sfx.play('start'); this.openStageSelect(); };
+        document.getElementById('start-game-btn').onclick = () => { this.sfx.play('start'); this.openStageSelect(); };
         document.getElementById('shop-back-btn').onclick = () => { this.sfx.play('close'); this.closeShop(); };
-        document.getElementById('start-bonus-confirm-btn').onclick = () => { this.tryLockLandscape(); this.sfx.play('start'); this.startGame(); };
+        document.getElementById('start-bonus-confirm-btn').onclick = () => { this.sfx.play('start'); this.startGame(); };
 
         // Secondary panel (profile / activities / mail) with swipeable carousel
         const panel = document.getElementById('secondary-panel');
@@ -4200,7 +4196,7 @@ class Game {
         const stageNext = document.getElementById('stage-next');
         if (stageNext) stageNext.onclick = () => { this.sfx.play('click'); this.stageSelectMove(1); };
         const stageConfirm = document.getElementById('stage-confirm-btn');
-        if (stageConfirm) stageConfirm.onclick = () => { this.tryLockLandscape(); this.sfx.play('start'); this.confirmStageSelection(); };
+        if (stageConfirm) stageConfirm.onclick = () => { this.sfx.play('start'); this.confirmStageSelection(); };
 
         const diffRow = document.getElementById('difficulty-row');
         if (diffRow) {
@@ -4214,7 +4210,7 @@ class Game {
 
         // 大厅按钮（关卡间）
         const lobbyNext = document.getElementById('lobby-next-btn');
-        if (lobbyNext) lobbyNext.onclick = () => { this.tryLockLandscape(); this.sfx.play('start'); this.startNextStageFromLobby(); };
+        if (lobbyNext) lobbyNext.onclick = () => { this.sfx.play('start'); this.startNextStageFromLobby(); };
         const lobbyMenu = document.getElementById('lobby-menu-btn');
         if (lobbyMenu) lobbyMenu.onclick = () => { this.sfx.play('close'); this.returnToMenu(); };
 
@@ -4453,156 +4449,7 @@ class Game {
         window.addEventListener('resize', () => syncCenterFromElement(), { passive: true });
     }
 
-    initLandscapeGate() {
-        this._landscape = {
-            isMobile: (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || ('ontouchstart' in window),
-            overlay: document.getElementById('rotate-overlay'),
-            tryBtn: document.getElementById('rotate-try-btn'),
-            continueBtn: document.getElementById('rotate-continue-btn'),
-            pausedState: null,
-            wasPlaying: false,
-            pollTimer: null,
-            manualBypassUntil: 0,
-        };
-
-        const o = this._landscape;
-        if (o.tryBtn) o.tryBtn.onclick = () => { this.tryLockLandscape(); };
-        if (o.continueBtn) {
-            o.continueBtn.onclick = () => {
-                // One-session bypass for WebViews that never update orientation correctly.
-                const now = Date.now();
-                o.manualBypassUntil = now + 1000 * 60 * 30; // 30 minutes
-                this.updateLandscapeGate(true);
-            };
-        }
-
-        const onChange = () => {
-            // Some browsers update viewport dimensions slightly later.
-            this.updateLandscapeGate();
-            setTimeout(() => this.updateLandscapeGate(), 220);
-            setTimeout(() => this.updateLandscapeGate(), 520);
-        };
-        window.addEventListener('resize', onChange, { passive: true });
-        window.addEventListener('orientationchange', onChange, { passive: true });
-        if (window.visualViewport) {
-            window.visualViewport.addEventListener('resize', onChange, { passive: true });
-            window.visualViewport.addEventListener('scroll', onChange, { passive: true });
-        }
-        try {
-            if (screen && screen.orientation && screen.orientation.addEventListener) {
-                screen.orientation.addEventListener('change', onChange);
-            }
-        } catch (_) { }
-        document.addEventListener('visibilitychange', onChange, { passive: true });
-        if (window.matchMedia) {
-            const mq = window.matchMedia('(orientation: landscape)');
-            if (mq && mq.addEventListener) mq.addEventListener('change', onChange);
-        }
-
-        this.updateLandscapeGate();
-    }
-
-    isLandscapeNow() {
-        // 1) Most reliable when available
-        try {
-            if (screen && screen.orientation && typeof screen.orientation.type === 'string') {
-                const t = screen.orientation.type;
-                if (t.includes('landscape')) return true;
-                if (t.includes('portrait')) return false;
-            }
-        } catch (_) { }
-
-        // 2) Legacy iOS Safari
-        const wo = (typeof window.orientation === 'number') ? window.orientation : null;
-        if (wo === 90 || wo === -90) return true;
-        if (wo === 0 || wo === 180) return false;
-
-        // 3) Media query
-        if (window.matchMedia) {
-            const m = window.matchMedia('(orientation: landscape)');
-            if (m && typeof m.matches === 'boolean') return m.matches;
-        }
-
-        // 4) Multi-source dims (WebViews can be inconsistent). Prefer the largest valid area.
-        const vw = (window.visualViewport && window.visualViewport.width) ? window.visualViewport.width : 0;
-        const vh = (window.visualViewport && window.visualViewport.height) ? window.visualViewport.height : 0;
-        const iw = window.innerWidth || 0;
-        const ih = window.innerHeight || 0;
-        const cw = (document.documentElement && document.documentElement.clientWidth) ? document.documentElement.clientWidth : 0;
-        const ch = (document.documentElement && document.documentElement.clientHeight) ? document.documentElement.clientHeight : 0;
-        const sw = (screen && screen.width) ? screen.width : 0;
-        const sh = (screen && screen.height) ? screen.height : 0;
-
-        const pairs = [
-            { w: vw, h: vh },
-            { w: cw, h: ch },
-            { w: iw, h: ih },
-            { w: sw, h: sh },
-        ].filter(p => p.w > 0 && p.h > 0);
-        if (pairs.length === 0) return true; // fail-open
-        pairs.sort((a, b) => (b.w * b.h) - (a.w * a.h));
-        const p = pairs[0];
-        return (p.w / p.h) >= 1.08;
-    }
-
-    updateLandscapeGate(force = false) {
-        const o = this._landscape;
-        if (!o || !o.isMobile || !o.overlay) return;
-
-        const now = Date.now();
-        let ok = this.isLandscapeNow();
-        if (!ok && !force && o.manualBypassUntil && now < o.manualBypassUntil) ok = true;
-
-        if (ok) {
-            o.overlay.classList.add('hidden');
-            o.overlay.setAttribute('aria-hidden', 'true');
-            // stop polling
-            if (o.pollTimer) {
-                clearInterval(o.pollTimer);
-                o.pollTimer = null;
-            }
-            // Resume if we paused only due to orientation.
-            if (o.pausedState && this.state === 'PAUSED' && o.wasPlaying) {
-                // Only resume if no modal is open.
-                const anyModalVisible = !!document.querySelector('.modal:not(.hidden)');
-                if (!anyModalVisible) {
-                    this.state = o.pausedState;
-                    this.updateMobileControlsVisibility();
-                    this.lastTime = performance.now();
-                }
-            }
-            o.pausedState = null;
-            o.wasPlaying = false;
-            return;
-        }
-
-        // Portrait => hard gate.
-        o.overlay.classList.remove('hidden');
-        o.overlay.setAttribute('aria-hidden', 'false');
-        // Poll while blocked: some browsers don't fire reliable events.
-        if (!o.pollTimer) {
-            o.pollTimer = setInterval(() => this.updateLandscapeGate(), 350);
-        }
-
-        // If in-game playing, pause and remember to resume.
-        if (this.state === 'PLAYING') {
-            o.pausedState = 'PLAYING';
-            o.wasPlaying = true;
-            this.state = 'PAUSED';
-            this.updateMobileControlsVisibility();
-        }
-    }
-
-    async tryLockLandscape() {
-        // Best-effort. Only works in some browsers and usually requires user gesture.
-        try {
-            if (screen && screen.orientation && screen.orientation.lock) {
-                await screen.orientation.lock('landscape');
-            }
-        } catch (_) { }
-        // Re-evaluate gate after attempt.
-        this.updateLandscapeGate();
-    }
+    // Portrait-first: no forced landscape gate (removed).
 
     updateMobileControlsVisibility() {
         const mc = this.mobileControls;
