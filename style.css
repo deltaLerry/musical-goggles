@@ -1185,12 +1185,19 @@ body {
     justify-content: flex-start;
     padding: 0 !important;
 }
+.panel-view[data-view="stageSelect"] #stage-select-screen h1,
+.panel-view[data-view="stageSelect"] #stage-select-screen .subtitle {
+    display: none;
+}
 .panel-view[data-view="stageSelect"] .stage-carousel {
     width: 100%;
     justify-content: center;
 }
 .panel-view[data-view="stageSelect"] .stage-card {
     width: min(720px, 88vw);
+    /* 面板内不需要重复“卡片边框/阴影”，避免和面板外框叠加 */
+    border: none;
+    box-shadow: none;
 }
 
 .stage-carousel {
