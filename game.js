@@ -545,6 +545,30 @@ const META_SKILL_SPECIAL = {
     }
 };
 
+// These skills are auto-unlocked to Lv.1 for new saves (free), so their Lv.1 cost should NOT be counted as "spent".
+const META_FREE_LV1_SKILLS = new Set([
+    'sharpness', 'quick_draw', 'vitality', 'split_shot',
+    'poison_nova', 'blinding_dart', 'mushroom_trap',
+    'health_boost', 'regen', 'iron_skin',
+    'swiftness', 'haste', 'multishot',
+    'wisdom', 'meditation', 'reach'
+]);
+
+function metaGetSkillSpentShards(saveManager, skillId) {
+    if (!saveManager || !saveManager.data || !skillId) return 0;
+    const lv = Math.max(0, Math.floor((saveManager.data.skillLevels && saveManager.data.skillLevels[skillId]) || 0));
+    if (lv <= 0) return 0;
+    let sum = 0;
+    for (let cur = 0; cur < lv; cur++) {
+        sum += metaGetLevelUpCost(skillId, cur);
+    }
+    // Free Lv.1 shouldn't be refunded
+    if (META_FREE_LV1_SKILLS.has(skillId) && lv >= 1) {
+        sum -= metaGetLevelUpCost(skillId, 0);
+    }
+    return Math.max(0, Math.floor(sum));
+}
+
 function metaGetSkillLevel(saveManager, skillId) {
     if (!saveManager || !saveManager.data || !skillId) return 0;
     const d = saveManager.data;
@@ -1833,6 +1857,32 @@ class SaveManager {
         this.updateUI();
         return spent;
     }
+
+    // Reset one skill's meta level and refund the shards spent on that skill.
+    // For free-Lv1 starter skills, we only reset down to Lv.1 (refund Lv.2+ spend).
+    resetSingleSkillMeta(skillId) {
+        if (!skillId) return 0;
+        const def = (SKILLS && SKILLS[skillId]) ? SKILLS[skillId] : null;
+        if (!def) return 0;
+        if (!this.data.skillLevels || typeof this.data.skillLevels !== 'object') this.data.skillLevels = {};
+
+        const cur = Math.max(0, Math.floor(this.data.skillLevels[skillId] || 0));
+        if (cur <= 0) return 0;
+
+        const refund = metaGetSkillSpentShards(this, skillId);
+        this.data.skillShards = (this.data.skillShards || 0) + refund;
+
+        // Keep free starter skills unlocked at Lv.1
+        const nextLv = (META_FREE_LV1_SKILLS && META_FREE_LV1_SKILLS.has(skillId)) ? 1 : 0;
+        this.data.skillLevels[skillId] = nextLv;
+
+        // Keep global spent roughly consistent
+        this.data.skillLevelsSpent = Math.max(0, Math.floor((this.data.skillLevelsSpent || 0) - refund));
+
+        this.save();
+        this.updateUI();
+        return refund;
+    }
 }
 
 // --- Logic ---
@@ -2967,7 +3017,6 @@ class Game {
         }
 
         document.getElementById('start-game-btn').onclick = () => { this.sfx.play('start'); this.openStageSelect(); };
-        document.getElementById('shop-btn').onclick = () => { this.sfx.play('open'); this.openShop(); };
         document.getElementById('shop-back-btn').onclick = () => { this.sfx.play('close'); this.closeShop(); };
         document.getElementById('start-bonus-confirm-btn').onclick = () => { this.sfx.play('start'); this.startGame(); };
 
@@ -2980,54 +3029,245 @@ class Game {
         const viewsEl = document.getElementById('panel-views');
 
         const viewTitle = (id) => ({
-            root: '面板',
             profile: '个人信息',
             bag: '背包',
             equip: '装备',
             activities: '活动',
-            mail: '邮件 / 公告',
+            skills: '技能成长',
+            skillDetail: '技能详情',
         }[id] || '面板');
 
         const panelStack = [];
         const getViews = () => viewsEl ? Array.from(viewsEl.querySelectorAll('.panel-view')) : [];
 
+        // Skills panel state + renderers
+        let panelSelectedSkillId = null;
+        const panelSkillShardsEl = document.getElementById('panel-skill-shards');
+        const panelSkillListEl = document.getElementById('panel-skill-list');
+        const panelSkillDetailEl = document.getElementById('panel-skill-detail');
+
+        const safeHtml = (s) => String(s || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+
+        const getSkillTypeLabel = (def) => (def && def.type === 'active') ? '主动' : '被动';
+
+        const renderSkillsList = () => {
+            if (!panelSkillListEl || !this.saveManager) return;
+            const sm = this.saveManager;
+            if (panelSkillShardsEl) panelSkillShardsEl.innerText = String(sm.data.skillShards || 0);
+
+            const all = Object.keys(SKILLS || {}).map(id => ({ id, def: SKILLS[id] })).filter(x => x.def);
+            // Keep it simple: active first, then passive; unlocked first
+            all.sort((a, b) => {
+                const al = metaGetSkillLevel(sm, a.id);
+                const bl = metaGetSkillLevel(sm, b.id);
+                const au = al >= 1, bu = bl >= 1;
+                if (au !== bu) return au ? -1 : 1;
+                const at = (a.def.type === 'active') ? 0 : 1;
+                const bt = (b.def.type === 'active') ? 0 : 1;
+                if (at !== bt) return at - bt;
+                return (a.def.name || a.id).localeCompare(b.def.name || b.id, 'zh-CN');
+            });
+
+            panelSkillListEl.innerHTML = all.map(s => {
+                const lv = metaGetSkillLevel(sm, s.id);
+                const unlocked = lv >= 1;
+                const next = metaDescribeNextLevel(s.id, lv);
+                const cls = `panel-skill-card ${unlocked ? '' : 'locked'}`;
+                const meta = unlocked ? `Lv.${lv}/${META_SKILL_MAX_LEVEL}` : `未解锁 · Lv.${lv}/${META_SKILL_MAX_LEVEL}`;
+                const type = getSkillTypeLabel(s.def);
+                return `
+                    <button class="${cls}" data-nav="skillDetail" data-skill="${safeHtml(s.id)}">
+                        <div class="panel-skill-top">
+                            <div class="panel-skill-name">${safeHtml(s.def.name)} <span class="panel-tag">${safeHtml(type)}</span></div>
+                            <div class="panel-skill-meta">${safeHtml(meta)}</div>
+                        </div>
+                        <div class="panel-skill-desc">${safeHtml(next)}</div>
+                    </button>
+                `;
+            }).join('');
+        };
+
+        const renderSkillDetail = () => {
+            if (!panelSkillDetailEl || !this.saveManager) return;
+            const sm = this.saveManager;
+            const sid = panelSelectedSkillId;
+            const def = (SKILLS && sid && SKILLS[sid]) ? SKILLS[sid] : null;
+            if (!sid || !def) {
+                panelSkillDetailEl.innerHTML = `
+                    <div class="panel-skill-hero">
+                        <div class="panel-skill-hero-title">技能不存在</div>
+                        <div class="panel-skill-hero-sub">返回上一层重新选择</div>
+                    </div>
+                `;
+                return;
+            }
+
+            const lv = metaGetSkillLevel(sm, sid);
+            const unlocked = lv >= 1;
+            const isMax = lv >= META_SKILL_MAX_LEVEL;
+            const cost = isMax ? 0 : metaGetLevelUpCost(sid, lv);
+            const shards = sm.data.skillShards || 0;
+            const canUp = !isMax && shards >= cost;
+            const nextDesc = metaDescribeNextLevel(sid, lv);
+            const spent = metaGetSkillSpentShards(sm, sid);
+
+            // Derive "current stats" for active skills using getParams() + meta apply.
+            let statsLines = [];
+            let mechLines = [];
+            if (def.type === 'active' && typeof def.getParams === 'function') {
+                try {
+                    const stubGame = { saveManager: sm };
+                    const casterStub = { cdr: 0, skillCdMul: 1, skillDmgMul: 1 };
+                    const p = def.getParams(stubGame, 1, casterStub) || {};
+                    const m = p._meta || {};
+
+                    const fmt = (n) => (typeof n === 'number' && Number.isFinite(n)) ? (Math.abs(n) >= 100 ? String(Math.round(n)) : n.toFixed(2)) : '';
+                    const pick = (obj, keys) => {
+                        for (const k of keys) if (obj[k] !== undefined) return obj[k];
+                        return undefined;
+                    };
+                    const cd = pick(p, ['cooldown']);
+                    if (cd !== undefined) statsLines.push(`冷却：${fmt(cd)}s`);
+
+                    const dmg = pick(p, ['damage', 'dmg', 'dmgPerTick', 'burnDps']);
+                    if (dmg !== undefined) {
+                        const label = (p.dmgPerTick !== undefined) ? '每跳伤害' : ((p.burnDps !== undefined) ? '燃烧DPS' : '伤害');
+                        statsLines.push(`${label}：${fmt(dmg)}`);
+                    }
+                    const heal = pick(p, ['heal']);
+                    if (heal !== undefined) statsLines.push(`治疗：${fmt(heal)}`);
+
+                    const radius = pick(p, ['radius', 'aoeRadius', 'triggerRadius']);
+                    if (radius !== undefined) statsLines.push(`范围：${fmt(radius)}`);
+                    const range = pick(p, ['range']);
+                    if (range !== undefined) statsLines.push(`射程：${fmt(range)}`);
+
+                    const dur = pick(p, ['duration', 'burnDur']);
+                    if (dur !== undefined) statsLines.push(`持续：${fmt(dur)}s`);
+                    const tick = pick(p, ['tickInterval']);
+                    if (tick !== undefined) statsLines.push(`间隔：${fmt(tick)}s`);
+
+                    // Quantity semantics
+                    const qtyPairs = [
+                        ['shots', '数量'],
+                        ['count', '数量'],
+                        ['jumps', '跳跃'],
+                        ['blades', '刀刃'],
+                        ['pulses', '脉冲'],
+                        ['totems', '图腾'],
+                        ['meteors', '陨石'],
+                        ['novas', '毒圈'],
+                    ];
+                    qtyPairs.forEach(([k, n]) => {
+                        if (p[k] !== undefined) statsLines.push(`${n}：${fmt(p[k])}`);
+                    });
+
+                    // Mechanism / milestone
+                    if (m.tier) {
+                        const special = META_SKILL_SPECIAL[sid] || {};
+                        const unlockedMechs = (special.mech || []).slice(0, Math.max(0, m.tier));
+                        mechLines.push(...unlockedMechs);
+                    }
+                    if (lv >= 10) mechLines.push('通用强化：命中附加短暂减速');
+                    if (lv >= 16) mechLines.push('通用强化：命中施加易伤（短暂）');
+                    // Extra flags
+                    if (p.followPlayer) mechLines.push('效果：跟随自身');
+                    if (p.chainExplode) mechLines.push('效果：连环引爆');
+                    if (p.aftershock) mechLines.push('效果：余震');
+                } catch (_) { }
+            }
+            if (statsLines.length === 0) {
+                statsLines = unlocked ? ['暂无可展示的数值项'] : ['未解锁'];
+            }
+
+            panelSkillDetailEl.innerHTML = `
+                <div class="panel-skill-hero">
+                    <div class="panel-skill-hero-title">${safeHtml(def.name)} <span class="panel-tag">${safeHtml(getSkillTypeLabel(def))}</span></div>
+                    <div class="panel-skill-hero-sub">${safeHtml(unlocked ? `Lv.${lv}/${META_SKILL_MAX_LEVEL}` : `未解锁 · Lv.${lv}/${META_SKILL_MAX_LEVEL}`)} · 已消耗碎片 ${safeHtml(spent)} · 当前碎片 ${safeHtml(shards)}</div>
+                </div>
+
+                <div class="panel-skill-block">
+                    <div class="panel-skill-block-title">技能说明</div>
+                    <div class="panel-skill-block-text">${safeHtml(def.unlockDesc || '')}</div>
+                </div>
+
+                <div class="panel-skill-block">
+                    <div class="panel-skill-block-title">当前状态</div>
+                    <div class="panel-skill-block-text">${safeHtml(statsLines.join('\n'))}</div>
+                    ${mechLines && mechLines.length > 0 ? `<div class="panel-skill-tags">${mechLines.map(x => `<span class="panel-tag">${safeHtml(x)}</span>`).join('')}</div>` : ''}
+                </div>
+
+                <div class="panel-skill-block">
+                    <div class="panel-skill-block-title">下一次提升</div>
+                    <div class="panel-skill-block-text">${safeHtml(nextDesc)}</div>
+                    <div class="panel-skill-actions">
+                        <button id="panel-skill-upgrade-btn" class="panel-primary-btn" ${canUp ? '' : 'disabled'}>
+                            ${isMax ? '已满级' : (unlocked ? `升级（碎片 ${cost}）` : `解锁（碎片 ${cost}）`)}
+                        </button>
+                        <button id="panel-skill-reset-btn" class="panel-secondary-btn" ${(spent > 0) ? '' : 'disabled'}>重置（返还碎片）</button>
+                    </div>
+                </div>
+            `;
+
+            const upBtn = document.getElementById('panel-skill-upgrade-btn');
+            if (upBtn) {
+                upBtn.onclick = () => {
+                    const ok = sm.upgradeSkillLevel(sid);
+                    // Refresh counts + detail/list
+                    sm.updateUI();
+                    renderSkillsList();
+                    renderSkillDetail();
+                    if (ok) this.sfx?.play('purchase');
+                    else this.sfx?.play('close');
+                };
+            }
+
+            const resetBtn = document.getElementById('panel-skill-reset-btn');
+            if (resetBtn) {
+                resetBtn.onclick = () => {
+                    const refunded = sm.resetSingleSkillMeta(sid);
+                    sm.updateUI();
+                    renderSkillsList();
+                    renderSkillDetail();
+                    if (refunded > 0) this.sfx?.play('purchase');
+                    else this.sfx?.play('close');
+                };
+            }
+        };
+
         const syncPanelUI = () => {
             if (!viewsEl) return;
             const views = getViews();
-            const cur = panelStack[panelStack.length - 1] || 'root';
+            const cur = panelStack[panelStack.length - 1] || null;
             const prev = (panelStack.length >= 2) ? panelStack[panelStack.length - 2] : null;
 
             views.forEach(v => {
                 const id = v.getAttribute('data-view') || '';
                 v.classList.remove('active', 'under');
                 if (id === cur) v.classList.add('active');
-                else if (prev && id === prev) v.classList.add('under');
             });
 
-            if (panelBackBtn) {
-                if (panelStack.length > 1) panelBackBtn.classList.remove('hidden');
-                else panelBackBtn.classList.add('hidden');
-            }
+            if (panelBackBtn) panelBackBtn.title = (panelStack.length > 1) ? '返回上一级' : '返回大厅';
             if (panelCrumbs) {
-                const parts = ['大厅', '面板'];
-                panelStack.forEach((id, i) => {
-                    if (i === 0 && id === 'root') return;
-                    parts.push(viewTitle(id));
-                });
+                const parts = ['大厅'];
+                panelStack.forEach((id) => { parts.push(viewTitle(id)); });
                 // 去重（root 可能重复映射）
                 const out = [];
                 parts.forEach(p => { if (out.length === 0 || out[out.length - 1] !== p) out.push(p); });
                 panelCrumbs.innerText = out.join(' > ');
             }
+
+            // When panel shows skills views, render content
+            if (cur === 'skills') renderSkillsList();
+            if (cur === 'skillDetail') renderSkillDetail();
         };
 
-        const openPanel = (toViewId = 'root') => {
+        const openPanel = (toViewId) => {
             if (!panel || !viewsEl) return;
             panel.classList.remove('hidden');
             panel.setAttribute('aria-hidden', 'false');
             panelStack.length = 0;
-            panelStack.push('root');
-            if (toViewId && toViewId !== 'root') panelStack.push(toViewId);
+            if (toViewId) panelStack.push(toViewId);
             syncPanelUI();
         };
 
@@ -3047,7 +3287,7 @@ class Game {
 
         if (panelBackdrop) panelBackdrop.onclick = closePanel;
         if (panelClose) panelClose.onclick = closePanel;
-        if (panelBackBtn) panelBackBtn.onclick = goBack;
+        if (panelBackBtn) panelBackBtn.onclick = () => { if (canGoBack()) goBack(); else closePanel(); };
 
         window.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
@@ -3065,8 +3305,11 @@ class Game {
                 if (!t || typeof t.closest !== 'function') return;
                 const btn = t.closest('[data-nav]');
                 if (!btn) return;
+                if (btn.disabled) return;
                 const to = btn.getAttribute('data-nav');
                 if (!to) return;
+                const sid = btn.getAttribute('data-skill');
+                if (sid) panelSelectedSkillId = sid;
                 // Push new view
                 panelStack.push(to);
                 syncPanelUI();
@@ -3077,6 +3320,10 @@ class Game {
         if (profileBtn) profileBtn.onclick = () => { this.sfx.play('open'); openPanel('profile'); };
         const activityBtn = document.getElementById('hub-mail-btn');
         if (activityBtn) activityBtn.onclick = () => { this.sfx.play('open'); openPanel('activities'); };
+
+        // Skills icon -> open skills panel (unified UX)
+        const skillsBtn = document.getElementById('shop-btn');
+        if (skillsBtn) skillsBtn.onclick = () => { this.sfx.play('open'); openPanel('skills'); };
 
         const resetBtn = document.getElementById('skill-upgrade-reset-btn');
         if (resetBtn) {

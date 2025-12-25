@@ -80,14 +80,14 @@
                             <span class="hub-icon-text">商店</span>
                         </button>
 
-                        <button id="hub-settings-btn" class="hub-icon-btn" disabled title="即将加入：设置/选项">
-                            <span class="hub-icon-emoji">⚙</span>
-                            <span class="hub-icon-text">设置</span>
-                        </button>
-
                         <button id="hub-mail-btn" class="hub-icon-btn" title="活动">
                             <span class="hub-icon-emoji">📮</span>
                             <span class="hub-icon-text">活动</span>
+                        </button>
+
+                        <button id="hub-settings-btn" class="hub-icon-btn" disabled title="即将加入：设置/选项">
+                            <span class="hub-icon-emoji">⚙</span>
+                            <span class="hub-icon-text">设置</span>
                         </button>
                     </div>
                 </div>
@@ -104,53 +104,19 @@
         <div id="panel-backdrop" class="panel-backdrop"></div>
         <div class="panel-sheet" role="dialog" aria-modal="true" aria-label="二级面板">
             <div class="panel-header">
-                <button id="panel-back-btn" class="panel-back hidden" title="返回上一级">← 返回</button>
+                <button id="panel-back-btn" class="panel-back" title="返回/关闭">←</button>
                 <div class="panel-crumbs" id="panel-crumbs">大厅</div>
                 <button id="panel-close-btn" class="panel-close" title="关闭">✕</button>
             </div>
             <div id="panel-views" class="panel-views" aria-label="面板视图栈">
-                <!-- Root -->
-                <section class="panel-view active" data-view="root">
-                    <div class="panel-section-title">面板</div>
-                    <div class="panel-list">
-                        <button class="panel-entry" data-nav="profile">
-                            <div class="panel-entry-left">
-                                <div class="panel-entry-icon">👤</div>
-                                <div class="panel-entry-text">
-                                    <div class="panel-entry-title">个人信息</div>
-                                    <div class="panel-entry-desc">背包 / 装备 / 数值 / 成就</div>
-                                </div>
-                            </div>
-                            <div class="panel-entry-right">›</div>
-                        </button>
-                        <button class="panel-entry" data-nav="activities">
-                            <div class="panel-entry-left">
-                                <div class="panel-entry-icon">📮</div>
-                                <div class="panel-entry-text">
-                                    <div class="panel-entry-title">活动</div>
-                                    <div class="panel-entry-desc">活动卡片列表（上下滑动浏览）</div>
-                                </div>
-                            </div>
-                            <div class="panel-entry-right">›</div>
-                        </button>
-                        <button class="panel-entry" data-nav="mail">
-                            <div class="panel-entry-left">
-                                <div class="panel-entry-icon">✉</div>
-                                <div class="panel-entry-text">
-                                    <div class="panel-entry-title">邮件 / 公告</div>
-                                    <div class="panel-entry-desc">系统邮件、更新公告</div>
-                                </div>
-                            </div>
-                            <div class="panel-entry-right">›</div>
-                        </button>
-                    </div>
-                    <div class="panel-note">提示：这是“堆叠式面板”。点进去会覆盖到下一层；用左上角“返回”回到上一级。</div>
-                </section>
-
                 <!-- Profile -->
                 <section class="panel-view" data-view="profile">
                     <div class="panel-section-title">个人信息</div>
                     <div class="panel-grid">
+                        <button class="panel-item" disabled title="即将加入：状态/战力">
+                            <div class="panel-item-icon">📊</div>
+                            <div class="panel-item-name">状态</div>
+                        </button>
                         <button class="panel-item" data-nav="bag">
                             <div class="panel-item-icon">🎒</div>
                             <div class="panel-item-name">背包</div>
@@ -159,21 +125,16 @@
                             <div class="panel-item-icon">🛡</div>
                             <div class="panel-item-name">装备</div>
                         </button>
-                        <button class="panel-item" disabled title="即将加入：数值/状态/战力">
-                            <div class="panel-item-icon">📊</div>
-                            <div class="panel-item-name">数值</div>
-                        </button>
                         <button class="panel-item" disabled title="即将加入：成就/图鉴">
                             <div class="panel-item-icon">🏆</div>
                             <div class="panel-item-name">成就</div>
                         </button>
                     </div>
-                    <div class="panel-note">背包/装备已收纳到个人信息面板，主界面侧栏保持“打关优先”。</div>
                 </section>
 
                 <!-- Bag -->
                 <section class="panel-view" data-view="bag">
-                    <div class="panel-section-title">背包（占位）</div>
+                    <div class="panel-section-title">背包</div>
                     <div class="panel-list">
                         <div class="panel-card">
                             <div class="panel-card-title">背包内容</div>
@@ -188,7 +149,7 @@
 
                 <!-- Equip -->
                 <section class="panel-view" data-view="equip">
-                    <div class="panel-section-title">装备（占位）</div>
+                    <div class="panel-section-title">装备</div>
                     <div class="panel-list">
                         <div class="panel-card">
                             <div class="panel-card-title">角色装备栏</div>
@@ -224,27 +185,30 @@
                     </div>
                 </section>
 
-                <!-- Mail -->
-                <section class="panel-view" data-view="mail">
-                    <div class="panel-section-title">邮件 / 公告</div>
-                    <div class="panel-list">
-                        <div class="panel-card">
-                            <div class="panel-card-title">系统邮件</div>
-                            <div class="panel-card-desc">奖励与通知（占位）。</div>
-                        </div>
-                        <div class="panel-card">
-                            <div class="panel-card-title">更新公告</div>
-                            <div class="panel-card-desc">版本说明（占位）。</div>
+                <!-- Skills (Meta growth) -->
+                <section class="panel-view" data-view="skills">
+                    <div class="panel-section-title">技能成长</div>
+                    <div class="panel-subbar">
+                        <div class="panel-pill">
+                            <span class="panel-pill-icon">💠</span>
+                            <span class="panel-pill-label">碎片</span>
+                            <span class="panel-pill-value" id="panel-skill-shards">0</span>
                         </div>
                     </div>
+                    <div id="panel-skill-list" class="panel-skill-list"></div>
+                </section>
+
+                <!-- Skill Detail -->
+                <section class="panel-view" data-view="skillDetail">
+                    <div id="panel-skill-detail" class="panel-skill-detail"></div>
                 </section>
             </div>
-            <div class="panel-hint">堆叠覆盖式面板 · 左上角返回上一级 · 页面内可上下滑动</div>
         </div>
     </div>
 
     <!-- Stage Select Screen -->
     <div id="stage-select-screen" class="hidden">
+        <button id="stage-back-btn" class="icon-btn screen-close" title="关闭">✕</button>
         <h1>选择关卡</h1>
         <div class="subtitle">左右切换 · 选择难度</div>
         <div class="currency-display">技能碎片: <span id="stage-select-skill-shards">0</span></div>
@@ -277,12 +241,12 @@
 
         <div class="menu-buttons" style="margin-top: 18px;">
             <button id="stage-confirm-btn" class="big-btn">开始</button>
-            <button id="stage-back-btn" class="big-btn" style="background-color: #757575;">返回主菜单</button>
         </div>
     </div>
 
     <!-- Lobby Screen (Between stages) -->
     <div id="lobby-screen" class="hidden">
+        <button id="lobby-menu-btn" class="icon-btn screen-close" title="关闭">✕</button>
         <h1>大厅</h1>
         <div class="subtitle">关卡间休整</div>
         <div class="lobby-panel">
@@ -294,12 +258,12 @@
         </div>
         <div class="menu-buttons">
             <button id="lobby-next-btn" class="big-btn">进入下一关</button>
-            <button id="lobby-menu-btn" class="big-btn" style="background-color: #757575;">返回主菜单</button>
         </div>
     </div>
 
     <!-- Shop Screen (Hidden by default) -->
     <div id="shop-screen" class="hidden">
+        <button id="shop-back-btn" class="icon-btn screen-close" title="关闭">✕</button>
         <h2>传承与局外成长</h2>
         <div class="currency-display">技能碎片: <span id="shop-skill-shards">0</span></div>
         
@@ -329,7 +293,6 @@
             <div id="skill-upgrade-list"></div>
         </div>
 
-        <button id="shop-back-btn" class="big-btn" style="background-color: #757575;">返回主菜单</button>
     </div>
 
     <!-- Start Bonus Modal -->
