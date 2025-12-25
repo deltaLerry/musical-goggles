@@ -1388,6 +1388,7 @@ const SKILL_SIGILS = {
     reach: 'arcane',
     arcane_amp: 'arcane',
 };
+const escapeHtml = (s) => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 const safeAttr = (s) => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 const getSkillSigilId = (id) => (SKILL_SIGILS && id && SKILL_SIGILS[id]) ? SKILL_SIGILS[id] : 'arcane';
 const skillSigilSvg = (skillId, extraClass = '') => {
@@ -4973,7 +4974,8 @@ class Game {
         this.bonusSkillId = randomId;
         
         const skill = SKILLS[randomId];
-        document.getElementById('bonus-skill-name').innerHTML = `${skillSigilSvg(randomId, 'inline')}${safeHtml(skill.name)}`;
+        const nameEl = document.getElementById('bonus-skill-name');
+        if (nameEl) nameEl.innerHTML = `${skillSigilSvg(randomId, 'inline')}${escapeHtml(skill.name)}`;
         document.getElementById('bonus-skill-desc').innerText = skill.desc(1);
         
         // Show Bonus Modal
