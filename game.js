@@ -2890,16 +2890,17 @@ class Player {
         }
     }
 
-    addItem(item) {
+    addItem(item, addLevel = 1) {
+        const lvlAdd = Math.max(1, Math.floor(addLevel || 1));
         const existing = this.inventory.find(s => s.item.id === item.id);
         if (existing) {
-            existing.level++;
+            existing.level += lvlAdd;
             this.recalculateStats();
             this.game.updateHUDInventory();
             return true;
         }
         if (this.inventory.length < this.inventoryLimit) {
-            this.inventory.push({ item: item, level: 1 });
+            this.inventory.push({ item: item, level: lvlAdd });
             this.recalculateStats();
             this.game.updateHUDInventory();
             return true;
@@ -3276,6 +3277,30 @@ class Game {
         ];
     }
 
+    getBossArchetypesMeta() {
+        return [
+            { id: 'queen',      name: '蜂后 · 余烬之翼',     hint: '召唤自爆蜂 + 冲锋' },
+            { id: 'toad',       name: '毒沼巨蟾 · 黏液王',   hint: '吐毒池 + 跃击落毒' },
+            { id: 'gunslinger', name: '镜像枪手 · 零号',     hint: '扇形齐射 + 闪现' },
+            { id: 'priest',     name: '圣坛司祭 · 金辉之环', hint: '护盾相位 + 自愈/召唤' },
+            { id: 'reaper',     name: '虚空收割者 · 低语',   hint: '虚空领域 + 召唤幽影' },
+        ];
+    }
+
+    getBossForStage(stageNumber) {
+        const s = Math.max(1, Math.floor(stageNumber || this.stage || 1));
+        // 固定 Boss：每关一个，后续关卡循环（可继续扩展更多 Boss 原型）
+        const order = ['queen', 'toad', 'gunslinger', 'priest', 'reaper'];
+        const id = order[(s - 1) % order.length];
+        const all = this.getBossArchetypesMeta();
+        return all.find(b => b.id === id) || all[0];
+    }
+
+    getBossPoolForStage(stageNumber) {
+        // 兼容旧接口：现在固定，不再随机池
+        return [this.getBossForStage(stageNumber)];
+    }
+
     getDifficultyDefs() {
         return {
             easy:   { id: 'easy',   name: '新手', enemyHpMul: 0.85, enemyDmgMul: 0.85, spawnMul: 0.92, eliteMul: 0.80, shardMul: 0.90 },
@@ -3289,6 +3314,23 @@ class Game {
         const defs = this.getDifficultyDefs();
         const id = this.difficultyId || 'normal';
         return defs[id] || defs.normal;
+    }
+
+    getStageLootProfile(stageNumber, difficultyId) {
+        const s = Math.max(1, Math.floor(stageNumber || this.stage || 1));
+        const defs = this.getDifficultyDefs();
+        const diff = defs[String(difficultyId || this.difficultyId || 'normal')] || defs.normal;
+
+        // 传承概率：随关卡略上升，并受难度影响（更难更容易出传承）
+        const baseHeirloom = Math.min(0.28, 0.14 + (s - 1) * 0.02);
+        const heirloomChance = Math.max(0, Math.min(0.45, baseHeirloom * (diff.shardMul || 1)));
+
+        // 装备强度：用“初始等级”表达（会叠加进 item level）
+        const baseLvl = 1 + Math.floor((s - 1) / 2);
+        const diffBonus = (diff.id === 'easy') ? 0 : (diff.id === 'normal' ? 0 : (diff.id === 'hard' ? 1 : 2));
+        const minLevel = Math.max(1, baseLvl + diffBonus);
+        const maxLevel = Math.max(minLevel, minLevel + (s >= 6 ? 1 : 0));
+        return { heirloomChance, minLevel, maxLevel };
     }
 
     openStageSelect() {
@@ -3360,6 +3402,64 @@ class Game {
                 div.innerText = t;
                 preview.appendChild(div);
             });
+        }
+
+        // Boss preview (pool)
+        const bossPreview = document.getElementById('stage-boss-preview');
+        if (bossPreview) {
+            bossPreview.innerHTML = '';
+            const b = this.getBossForStage(meta.id);
+            const div = document.createElement('div');
+            div.className = 'boss-preview-chip';
+            div.innerHTML = `${b.name} <span>· ${b.hint}</span>`;
+            bossPreview.appendChild(div);
+        }
+
+        // Loot preview (dynamic by heirloom progress)
+        const lootEl = document.getElementById('stage-loot-preview');
+        if (lootEl) {
+            lootEl.innerHTML = '';
+            const profile = this.getStageLootProfile(meta.id, did);
+            const possibleHeirlooms = ITEMS.filter(i => i.isHeirloom && !(this.saveManager && this.saveManager.data && this.saveManager.data.heirlooms || []).includes(i.id));
+            const standards = ITEMS.filter(i => !i.isHeirloom);
+            const heirloomChance = (possibleHeirlooms.length > 0 ? profile.heirloomChance : 0);
+
+            const box = document.createElement('div');
+            box.className = 'loot-preview-box';
+            box.innerHTML = `
+                <div class="loot-line"><b>必掉</b>：1 件装备（初始等级 ${profile.minLevel}~${profile.maxLevel}，影响强度）</div>
+                <div class="loot-line"><b>传承掉落</b>：${Math.round(heirloomChance * 100)}%（仅在仍有未解锁传承时）</div>
+                <div class="loot-line"><b>普通掉落</b>：${Math.round((1 - heirloomChance) * 100)}%</div>
+            `;
+            const sample = document.createElement('div');
+            sample.className = 'loot-sample';
+
+            const pickN = (arr, n) => {
+                const a = [...arr];
+                const out = [];
+                for (let i = 0; i < n && a.length > 0; i++) {
+                    const k = Math.floor(Math.random() * a.length);
+                    out.push(a[k]);
+                    a.splice(k, 1);
+                }
+                return out;
+            };
+
+            pickN(possibleHeirlooms, Math.min(2, possibleHeirlooms.length)).forEach(it => {
+                const d = document.createElement('div');
+                d.className = 'loot-chip heirloom';
+                d.innerText = `传承：${it.name}`;
+                sample.appendChild(d);
+            });
+            pickN(standards, 3).forEach(it => {
+                const d = document.createElement('div');
+                d.className = 'loot-chip';
+                d.innerText = `装备：${it.name}（+${profile.minLevel}~${profile.maxLevel}）`;
+                sample.appendChild(d);
+            });
+
+            box.appendChild(sample);
+            lootEl.appendChild(box);
         }
 
         const defs = this.getDifficultyDefs();
@@ -4068,7 +4168,9 @@ class Game {
 
         // 精英池：Boss 击败后解锁，后续关卡稀有出现（不需要写进关卡 allowed）
         if (!this.frenzyActive && this.eliteBlueprints && this.eliteBlueprints.length > 0 && this.stage >= 4) {
-            weights['elite'] = (weights['elite'] || 0) + Math.min(2, 1 + Math.floor(this.eliteBlueprints.length * 0.5));
+            const diff = this.getDifficulty ? this.getDifficulty() : { eliteMul: 1 };
+            const em = (diff && diff.eliteMul !== undefined) ? diff.eliteMul : 1;
+            weights['elite'] = (weights['elite'] || 0) + Math.min(3, Math.floor((1 + this.eliteBlueprints.length * 0.5) * em));
         }
 
         if (type === 'elite' && this.eliteBlueprints && this.eliteBlueprints.length > 0) {
@@ -4161,27 +4263,58 @@ class Game {
         const display = document.getElementById('loot-display');
         display.innerHTML = '';
         const div = document.createElement('div');
-        div.className = `loot-item ${this.pendingLootItem.isHeirloom ? 'heirloom' : ''}`;
-        div.innerHTML = `<h3>${this.pendingLootItem.name}</h3><p>${this.pendingLootItem.desc}</p>`;
-        if(this.pendingLootItem.isHeirloom) div.innerHTML += `<p style="color:#FFD740;font-weight:bold">传家宝 (可继承)</p>`;
+        const loot = this.pendingLootItem;
+        const item = (loot && loot.item) ? loot.item : loot;
+        const lvl = (loot && loot.level) ? loot.level : 1;
+        div.className = `loot-item ${item && item.isHeirloom ? 'heirloom' : ''}`;
+        div.innerHTML = `<h3>${item.name}</h3><p>${item.desc}</p>`;
+        if (item && item.isHeirloom) div.innerHTML += `<p style="color:#FFD740;font-weight:bold">传家宝 (可继承)</p>`;
+        else div.innerHTML += `<p style="color:#ffd700;font-weight:bold">装备等级 +${lvl}</p>`;
         display.appendChild(div);
         modal.classList.remove('hidden');
     }
 
     generateLoot() {
-        const r = Math.random();
-        const possibleHeirlooms = ITEMS.filter(i => i.isHeirloom && !this.saveManager.data.heirlooms.includes(i.id));
+        const profile = this.getStageLootProfile(this.stage, this.difficultyId);
+        const owned = (this.saveManager && this.saveManager.data && this.saveManager.data.heirlooms) ? this.saveManager.data.heirlooms : [];
+        const possibleHeirlooms = ITEMS.filter(i => i.isHeirloom && !owned.includes(i.id));
         const standards = ITEMS.filter(i => !i.isHeirloom);
-        if (possibleHeirlooms.length > 0 && r < 0.2) return possibleHeirlooms[Math.floor(Math.random() * possibleHeirlooms.length)];
-        return standards[Math.floor(Math.random() * standards.length)];
+
+        let item = null;
+        const heirloomChance = (possibleHeirlooms.length > 0 ? profile.heirloomChance : 0);
+        const r = Math.random();
+        if (possibleHeirlooms.length > 0 && r < heirloomChance) {
+            item = possibleHeirlooms[Math.floor(Math.random() * possibleHeirlooms.length)];
+        } else {
+            // 普通装备：后期更倾向高强度装备（简单权重）
+            const s = Math.max(1, this.stage || 1);
+            const weight = (it) => {
+                const txt = (it.desc || '') + ' ' + JSON.stringify(it.stats || {});
+                const atk = /攻击|damage/i.test(txt) ? 1 : 0;
+                const def = /生命|maxHp|减伤|dodge/i.test(txt) ? 1 : 0;
+                const util = /冷却|cdr|经验|exp|拾取|magnet/i.test(txt) ? 1 : 0;
+                const base = 10;
+                return base + atk * (2 + Math.floor(s / 2)) + def * (1 + Math.floor(s / 3)) + util * (1 + Math.floor(s / 4));
+            };
+            const pool = standards.map(it => ({ it, w: Math.max(1, weight(it)) }));
+            const sum = pool.reduce((a, b) => a + b.w, 0) || 1;
+            let x = Math.random() * sum;
+            item = pool[0].it;
+            for (const p of pool) { x -= p.w; if (x <= 0) { item = p.it; break; } }
+        }
+
+        const lvl = profile.minLevel + Math.floor(Math.random() * (profile.maxLevel - profile.minLevel + 1));
+        return { item, level: lvl, heirloomChance };
     }
 
     collectLoot() {
-        const item = this.pendingLootItem;
+        const loot = this.pendingLootItem;
+        const item = (loot && loot.item) ? loot.item : loot;
+        const lvl = (loot && loot.level) ? loot.level : 1;
         document.getElementById('loot-modal').classList.add('hidden');
-        if (item.isHeirloom) this.saveManager.addHeirloom(item.id);
-        const added = this.player.addItem(item);
-        if (!added) this.showInventoryFullModal(item);
+        if (item && item.isHeirloom) this.saveManager.addHeirloom(item.id);
+        const added = this.player.addItem(item, lvl);
+        if (!added) this.showInventoryFullModal(item, lvl);
         else this.openLobby();
     }
 
@@ -4351,16 +4484,16 @@ class Game {
     }
 
     generateBossBlueprint() {
-        // 多原型 Boss：用“机制”制造记忆点，而不是单纯堆数值
+        // 固定 Boss：由关卡ID决定（不随机）
         const s = Math.max(1, this.stage || 1);
-        const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+        const bossMeta = this.getBossForStage(s);
 
-        const bosses = [
-            {
+        const baseBosses = {
+            queen: {
                 id: 'queen',
                 name: '蜂后 · 余烬之翼',
                 color: '#FFCC80',
-                config: {
+                buildConfig: () => ({
                     type: 'boss',
                     bossType: 'queen',
                     hp: 820 + s * 150,
@@ -4369,13 +4502,13 @@ class Game {
                     exp: 30,
                     radius: 58,
                     color: '#FFCC80'
-                }
+                })
             },
-            {
+            toad: {
                 id: 'toad',
                 name: '毒沼巨蟾 · 黏液王',
                 color: '#9CCC65',
-                config: {
+                buildConfig: () => ({
                     type: 'boss',
                     bossType: 'toad',
                     hp: 920 + s * 170,
@@ -4384,13 +4517,13 @@ class Game {
                     exp: 32,
                     radius: 62,
                     color: '#9CCC65'
-                }
+                })
             },
-            {
+            gunslinger: {
                 id: 'gunslinger',
                 name: '镜像枪手 · 零号',
                 color: '#26C6DA',
-                config: {
+                buildConfig: () => ({
                     type: 'boss',
                     bossType: 'gunslinger',
                     hp: 760 + s * 140,
@@ -4402,13 +4535,13 @@ class Game {
                     isRanged: true,
                     attackRange: 520,
                     rangedProfile: { cooldown: 2.2, projSpeed: 520, color: '#26C6DA', radius: 4 }
-                }
+                })
             },
-            {
+            priest: {
                 id: 'priest',
                 name: '圣坛司祭 · 金辉之环',
                 color: '#FFD740',
-                config: {
+                buildConfig: () => ({
                     type: 'boss',
                     bossType: 'priest',
                     hp: 980 + s * 180,
@@ -4417,13 +4550,13 @@ class Game {
                     exp: 36,
                     radius: 60,
                     color: '#FFD740'
-                }
+                })
             },
-            {
+            reaper: {
                 id: 'reaper',
                 name: '虚空收割者 · 低语',
                 color: '#B388FF',
-                config: {
+                buildConfig: () => ({
                     type: 'boss',
                     bossType: 'reaper',
                     hp: 860 + s * 160,
@@ -4432,15 +4565,12 @@ class Game {
                     exp: 38,
                     radius: 60,
                     color: '#B388FF'
-                }
+                })
             }
-        ];
+        };
 
-        // 随关卡提升：逐步把“更复杂”的 Boss 放进池子
-        let pool = bosses.slice(0, Math.min(bosses.length, 2 + Math.floor((s - 1) / 1.2)));
-        // 避免“每关固定一个”太死板：从池子里随机抽
-        const chosen = pick(pool);
-        return { ...chosen, config: chosen.config };
+        const chosen = (bossMeta && baseBosses[bossMeta.id]) ? baseBosses[bossMeta.id] : baseBosses.queen;
+        return { id: chosen.id, name: chosen.name, color: chosen.color, config: chosen.buildConfig() };
     }
 
     registerEliteFromBoss(boss) {
@@ -4493,10 +4623,11 @@ class Game {
         });
     }
 
-    showInventoryFullModal(newItem) {
+    showInventoryFullModal(newItem, newItemLevel = 1) {
         this.state = 'PAUSED';
         this.updateMobileControlsVisibility();
         this.pendingItem = newItem;
+        this.pendingItemLevel = Math.max(1, Math.floor(newItemLevel || 1));
         const modal = document.getElementById('inventory-modal');
         document.getElementById('new-item-name').innerText = newItem.name;
         const grid = document.getElementById('inventory-grid');
@@ -4506,7 +4637,7 @@ class Game {
             div.className = 'equip-slot'; div.style.width = '60px'; div.style.height = '60px';
             div.innerHTML = `${slot.item.name[0]}<div class="lvl-badge">${slot.level}</div>`;
             div.onclick = () => {
-                this.player.inventory[idx] = { item: newItem, level: 1 };
+                this.player.inventory[idx] = { item: newItem, level: this.pendingItemLevel || 1 };
                 this.player.recalculateStats();
                 this.updateHUDInventory();
                 document.getElementById('inventory-modal').classList.add('hidden');
