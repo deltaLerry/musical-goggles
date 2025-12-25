@@ -456,16 +456,27 @@ class SoundManager {
     }
 }
 
-// --- Meta Skill Upgrades (Out-of-run progression) ---
-// 每个技能 5 条强化线：伤害 / 范围 / 冷却 / 数量 / 机制（机制=质变）。
-const META_UPGRADE_KEYS = ['dmg', 'range', 'cd', 'qty', 'mech'];
-const META_UPGRADE_CONF = {
-    dmg: { name: '伤害', max: 10, base: 2, growth: 1.28, perLv: 0.08 },     // +8% / lv
-    range: { name: '范围', max: 10, base: 2, growth: 1.28, perLv: 0.06 },   // +6% / lv
-    cd: { name: '冷却', max: 10, base: 3, growth: 1.32, perLv: 0.05 },      // -5% / lv（乘算）
-    qty: { name: '数量', max: 5, base: 4, growth: 1.48, perLv: 1 },         // +1 / lv（语义由技能决定）
-    mech: { name: '机制', max: 3, base: 6, growth: 1.65, perLv: 1 },        // 解锁 1~3 档机制
-};
+// --- Meta Skill Progression (Out-of-run progression) ---
+// 新规则：所有技能统一“局外等级”0~20。
+// - Lv.0：未解锁（不会进入局内升级池）
+// - Lv.1：解锁（加入局内升级池）
+// - Lv.2~20：数值成长 + 里程碑（数量/机制/额外效果）
+const META_SKILL_MAX_LEVEL = 20;
+
+function metaGetMechTier(metaLevel) {
+    const lv = Math.max(0, Math.floor(metaLevel || 0));
+    // 6/12/18 解锁 1/2/3 档机制
+    if (lv >= 18) return 3;
+    if (lv >= 12) return 2;
+    if (lv >= 6) return 1;
+    return 0;
+}
+
+function metaGetQtyBonus(metaLevel) {
+    const lv = Math.max(0, Math.floor(metaLevel || 0));
+    // 5/10/15/20 => +1（共 4 次）
+    return Math.max(0, Math.min(4, Math.floor(lv / 5)));
+}
 
 const META_SKILL_SPECIAL = {
     poison_nova: {
@@ -534,69 +545,207 @@ const META_SKILL_SPECIAL = {
     }
 };
 
-function metaGetUpgradeCost(skillId, key, lvlNow) {
-    const conf = META_UPGRADE_CONF[key];
-    if (!conf) return 999999;
-    const n = Math.max(0, Math.floor(lvlNow || 0));
-    const cost = Math.floor(conf.base * Math.pow(conf.growth, n) + n * 0.75);
-    return Math.max(1, cost);
+function metaGetSkillLevel(saveManager, skillId) {
+    if (!saveManager || !saveManager.data || !skillId) return 0;
+    const d = saveManager.data;
+    if (!d.skillLevels || typeof d.skillLevels !== 'object') d.skillLevels = {};
+    return Math.max(0, Math.floor(d.skillLevels[skillId] || 0));
 }
 
-function metaGetStateFromSave(saveManager, skillId) {
-    const base = { dmg: 0, range: 0, cd: 0, qty: 0, mech: 0 };
-    const sm = saveManager;
-    if (!sm || !sm.data) return { ...base };
-    if (!sm.data.skillUpgrades || typeof sm.data.skillUpgrades !== 'object') sm.data.skillUpgrades = {};
-    const st = sm.data.skillUpgrades[skillId];
-    if (!st || typeof st !== 'object') return { ...base };
-    META_UPGRADE_KEYS.forEach(k => {
-        const v = Math.max(0, Math.floor(st[k] || 0));
-        base[k] = v;
-    });
-    return base;
+function metaIsSkillUnlocked(saveManager, skillId) {
+    return metaGetSkillLevel(saveManager, skillId) >= 1;
+}
+
+function metaGetLevelUpCost(skillId, currentLevel) {
+    const def = (SKILLS && SKILLS[skillId]) ? SKILLS[skillId] : null;
+    const cur = Math.max(0, Math.floor(currentLevel || 0));
+    const next = cur + 1;
+    if (!def) return 999999;
+    if (next > META_SKILL_MAX_LEVEL) return 999999;
+
+    // 利用旧的 unlockCost 作为“稀有度/成本锚点”，实现技能库融合但仍有区分度
+    const rarity = Math.max(0, Math.floor(def.unlockCost || 0));
+    const base = (rarity > 0 ? rarity : (def.type === 'active' ? 8 : 5));
+
+    // Lv.1 = 解锁：成本主要由 base 决定；后续指数增长 + 线性项
+    const growth = (def.type === 'active' ? 1.18 : 1.16);
+    const k = Math.max(0, next - 1);
+    const cost = Math.floor(base * Math.pow(growth, k) + k * (def.type === 'active' ? 1.2 : 0.8));
+    return Math.max(0, cost);
+}
+
+function metaDescribeNextLevel(skillId, currentLevel) {
+    const def = (SKILLS && SKILLS[skillId]) ? SKILLS[skillId] : null;
+    const cur = Math.max(0, Math.floor(currentLevel || 0));
+    const next = cur + 1;
+    if (!def) return '';
+    if (next > META_SKILL_MAX_LEVEL) return '已满级';
+
+    if (next === 1) return '解锁该技能：加入局内升级池';
+
+    // 通用数值成长（适配大多数技能；没有对应字段就“无影响”）
+    const dmgPct = 4;   // 每级额外 +4%（Lv2~20）
+    const rangePct = 2; // 每级额外 +2%
+    const cdPct = 1.5;  // 近似 -1.5%（乘算）
+
+    const parts = [];
+    if (def.type === 'active') {
+        parts.push(`技能伤害 +${dmgPct}%`);
+        parts.push(`范围/射程 +${rangePct}%`);
+        parts.push(`冷却约 -${cdPct}%`);
+
+        // 数量里程碑
+        if (next % 5 === 0) {
+            const special = META_SKILL_SPECIAL[skillId] || {};
+            parts.push(`数量提升：+1 ${special.qtyName || '数量'}`);
+        }
+        // 机制里程碑
+        if (next === 6 || next === 12 || next === 18) {
+            const tier = metaGetMechTier(next);
+            const special = META_SKILL_SPECIAL[skillId] || {};
+            const d = (special.mech && special.mech[tier - 1]) ? special.mech[tier - 1] : `解锁机制 ${tier}`;
+            parts.push(d);
+        }
+        // 额外（通用）机制：让高等级更“有味道”
+        if (next === 10) parts.push('通用强化：技能命中会附加短暂减速');
+        if (next === 16) parts.push('通用强化：命中会施加“易伤”(承受伤害提高，短暂)');
+        if (next === 20) parts.push('终极：数量与机制达成最终形态');
+    } else {
+        // 被动：强化“被动效果强度”（通过后续的 metaApplyPassiveBonus 实现）
+        parts.push('被动效果强度提升');
+        if (next === 10) parts.push('通用强化：被动额外获得少量加成');
+        if (next === 20) parts.push('终极：被动获得额外质变');
+    }
+    return parts.join('；');
+}
+
+function metaProcOnEnemyHit(enemy, meta) {
+    if (!enemy || !meta) return;
+    const lv = Math.max(0, meta.level || 0);
+    if (lv >= 10 && typeof enemy.applyDot === 'function') {
+        // 通用减速：低干扰、可叠加刷新
+        enemy.applyDot(0, 0.9, 0.14);
+    }
+    if (lv >= 16) {
+        enemy.vulnTimer = Math.max(enemy.vulnTimer || 0, 1.8);
+        enemy.vulnMul = Math.max(enemy.vulnMul || 0, 0.12);
+    }
 }
 
 function metaApplyToParams(game, skillId, params) {
     const sm = game && game.saveManager ? game.saveManager : null;
-    const st = metaGetStateFromSave(sm, skillId);
-    const dmgMul = 1 + (META_UPGRADE_CONF.dmg.perLv * st.dmg);
-    const rangeMul = 1 + (META_UPGRADE_CONF.range.perLv * st.range);
-    const cdMul = Math.max(0.55, Math.pow(1 - META_UPGRADE_CONF.cd.perLv, st.cd));
-
+    const level = metaGetSkillLevel(sm, skillId);
     const p = params || {};
+    if (level <= 0) {
+        p._meta = { level: 0, unlocked: false, tier: 0, qBonus: 0 };
+        return p;
+    }
+
+    const lv = Math.max(1, Math.min(META_SKILL_MAX_LEVEL, level));
+    const k = Math.max(0, lv - 1); // Lv.1 仅解锁；成长从 Lv.2 开始
+
+    // 通用缩放
+    const dmgMul = 1 + 0.04 * k;
+    const rangeMul = 1 + 0.02 * k;
+    const cdMul = Math.max(0.55, Math.pow(0.985, k));
+    const durMul = 1 + 0.015 * k;
+    const healMul = 1 + 0.03 * k;
+
     if (p.cooldown !== undefined) p.cooldown = Math.max(0.35, p.cooldown * cdMul);
 
-    // Common damage keys
-    ['damage', 'dmg', 'dmgPerTick', 'burnDps'].forEach(k => {
-        if (p[k] !== undefined) p[k] = p[k] * dmgMul;
+    // Damage-ish
+    ['damage', 'dmg', 'dmgPerTick', 'burnDps'].forEach(key => {
+        if (p[key] !== undefined) p[key] = p[key] * dmgMul;
+    });
+    // Heal-ish
+    ['heal'].forEach(key => {
+        if (p[key] !== undefined) p[key] = p[key] * healMul;
+    });
+    // Range-ish
+    ['radius', 'range', 'aoeRadius', 'triggerRadius'].forEach(key => {
+        if (p[key] !== undefined) p[key] = p[key] * rangeMul;
+    });
+    // Duration-ish
+    ['duration', 'burnDur'].forEach(key => {
+        if (p[key] !== undefined) p[key] = p[key] * durMul;
     });
 
-    // Common range keys
-    ['radius', 'range', 'aoeRadius', 'triggerRadius'].forEach(k => {
-        if (p[k] !== undefined) p[k] = p[k] * rangeMul;
-    });
+    const qBonus = metaGetQtyBonus(lv);
+    const tier = metaGetMechTier(lv);
 
-    // Quantity application (skill-specific)
-    const q = Math.max(0, st.qty);
-    if (skillId === 'blinding_dart' && p.shots !== undefined) p.shots = Math.min(10, p.shots + q);
-    if (skillId === 'mushroom_trap' && p.count !== undefined) p.count = Math.min(10, p.count + q);
-    if (skillId === 'chain_lightning' && p.jumps !== undefined) p.jumps = Math.min(18, p.jumps + q);
-    if (skillId === 'blade_storm' && p.blades !== undefined) p.blades = Math.min(60, p.blades + q * 2);
-    if (skillId === 'frost_nova') p.pulses = Math.min(6, 1 + q);
-    if (skillId === 'healing_totem') p.totems = Math.min(4, 1 + q);
-    if (skillId === 'meteor_strike') p.meteors = Math.min(4, 1 + q);
-    if (skillId === 'poison_nova') p.novas = Math.min(4, 1 + q);
+    // 数量语义（技能特化）
+    if (skillId === 'blinding_dart' && p.shots !== undefined) p.shots = Math.min(10, p.shots + qBonus);
+    if (skillId === 'mushroom_trap' && p.count !== undefined) p.count = Math.min(10, p.count + qBonus);
+    if (skillId === 'chain_lightning' && p.jumps !== undefined) p.jumps = Math.min(18, p.jumps + qBonus);
+    if (skillId === 'blade_storm' && p.blades !== undefined) p.blades = Math.min(70, p.blades + qBonus * 2);
+    if (skillId === 'frost_nova') p.pulses = Math.min(7, 1 + qBonus);
+    if (skillId === 'healing_totem') p.totems = Math.min(5, 1 + qBonus);
+    if (skillId === 'meteor_strike') p.meteors = Math.min(5, 1 + qBonus);
+    if (skillId === 'poison_nova') p.novas = Math.min(5, 1 + qBonus);
 
-    const mech = Math.max(0, Math.min(META_UPGRADE_CONF.mech.max, st.mech));
-    p._meta = { ...st, dmgMul, rangeMul, cdMul, mech };
-
-    // Minor direct tweaks from mechanism levels
-    if (skillId === 'frost_nova' && mech >= 3 && p.freeze !== undefined) p.freeze = p.freeze + 0.25;
-    if (skillId === 'meteor_strike' && mech >= 3) {
-        if (p.burnDur !== undefined) p.burnDur = p.burnDur * 1.35;
-        if (p.burnDps !== undefined) p.burnDps = p.burnDps * 1.25;
+    // 机制的少量“数值补完”（让解锁更明显）
+    if (skillId === 'frost_nova' && tier >= 3 && p.freeze !== undefined) p.freeze = p.freeze + 0.25;
+    if (skillId === 'meteor_strike' && tier >= 3) {
+        if (p.burnDur !== undefined) p.burnDur = p.burnDur * 1.25;
+        if (p.burnDps !== undefined) p.burnDps = p.burnDps * 1.18;
     }
+
+    p._meta = { level: lv, unlocked: true, tier, qBonus, dmgMul, rangeMul, cdMul, durMul, healMul };
     return p;
+}
+
+function metaApplyPassiveBonus(player, skillId, inRunSkillLevel, metaLevel) {
+    const p = player;
+    if (!p) return;
+    const mlv = Math.max(0, Math.floor(metaLevel || 0));
+    if (mlv <= 1) return; // Lv.1 仅解锁
+    const k = mlv - 1;
+    const sLv = Math.max(1, Math.floor(inRunSkillLevel || 1));
+
+    // 通用：少量“顺手”提升，保证每个被动都有局外成长感
+    // （再叠加技能特化，使差异更明显）
+    p.damage += 0.4 * k;
+    p.maxHp += 1.2 * k;
+
+    if (skillId === 'sharpness') {
+        p.damage += 1.2 * k * sLv;
+    } else if (skillId === 'quick_draw' || skillId === 'haste') {
+        // 额外攻速（乘算，克制）
+        p.attackCooldown *= Math.pow(0.995, k * Math.max(1, Math.min(10, sLv)));
+    } else if (skillId === 'vitality' || skillId === 'health_boost') {
+        p.maxHp += 6 * k * Math.min(6, sLv);
+    } else if (skillId === 'regen') {
+        p.regen += 0.10 * k * Math.min(6, sLv);
+    } else if (skillId === 'iron_skin') {
+        p.damageReduction += 0.25 * k * Math.min(6, sLv);
+    } else if (skillId === 'swiftness') {
+        p.speed += 2.2 * k * Math.min(6, sLv);
+    } else if (skillId === 'wisdom') {
+        p.expMultiplier += 0.006 * k;
+    } else if (skillId === 'meditation') {
+        p.cdr = Math.min(0.6, (p.cdr || 0) + 0.004 * k);
+    } else if (skillId === 'reach') {
+        p.magnetMultiplier += 0.012 * k;
+    } else if (skillId === 'split_shot' || skillId === 'multishot') {
+        // 每 7 级局外升级 +1 分裂箭（若已学该被动）
+        p.splitShotCount = Math.max(p.splitShotCount || 0, Math.floor(mlv / 7));
+    } else if (skillId === 'arcane_amp') {
+        p.skillDmgMul = (p.skillDmgMul || 1) * (1 + 0.01 * k);
+        if (mlv >= 12) p.skillCdMul = (p.skillCdMul || 1) * 0.97;
+    } else if (skillId === 'toxic_blades') {
+        if (p.poisonOnHit) {
+            p.poisonOnHit = { ...p.poisonOnHit };
+            p.poisonOnHit.dps = (p.poisonOnHit.dps || 0) * (1 + 0.02 * k);
+            if (mlv >= 10) p.poisonOnHit.slow = Math.max(p.poisonOnHit.slow || 0, 0.12);
+            if (mlv >= 20) p.poisonOnHit.duration = (p.poisonOnHit.duration || 0) * 1.18;
+        }
+    } else if (skillId === 'adrenaline') {
+        if (p.killHaste) {
+            p.killHaste = { ...p.killHaste };
+            p.killHaste.duration = (p.killHaste.duration || 0) * (1 + 0.015 * k);
+            if (mlv >= 20) p.killHaste.maxStacks = Math.max(p.killHaste.maxStacks || 1, 6);
+        }
+    }
 }
 
 const SKILLS = {
@@ -646,7 +795,7 @@ const SKILLS = {
             const p = params || (SKILLS['poison_nova'].getParams ? SKILLS['poison_nova'].getParams(game, lvl, game.player) : null);
             const x0 = game.player.x, y0 = game.player.y;
             const times = Math.max(1, Math.floor(p.novas || 1));
-            const mech = (p._meta && p._meta.mech) ? p._meta.mech : 0;
+            const tier = (p._meta && p._meta.tier) ? p._meta.tier : 0;
             for (let i = 0; i < times; i++) {
                 const ox = (Math.random() - 0.5) * 18 * i;
                 const oy = (Math.random() - 0.5) * 18 * i;
@@ -655,9 +804,10 @@ const SKILLS = {
                     tickInterval: p.tickInterval,
                     follow: p.followPlayer ? 'player' : null,
                     onTickEnemy: (g, e) => {
-                        if (mech >= 1 && typeof e.applyDot === 'function') e.applyDot(0, 1.0, 0.16);
-                        if (mech >= 2 && typeof e.applyDot === 'function') e.applyDot(Math.max(1, p.dmgPerTick * 0.22), 1.4, 0.08);
-                        if (mech >= 3 && (e.dotTimer || 0) > 0.1) e.takeDamage(p.dmgPerTick * 0.18);
+                        metaProcOnEnemyHit(e, p._meta);
+                        if (tier >= 1 && typeof e.applyDot === 'function') e.applyDot(0, 1.0, 0.16);
+                        if (tier >= 2 && typeof e.applyDot === 'function') e.applyDot(Math.max(1, p.dmgPerTick * 0.22), 1.4, 0.08);
+                        if (tier >= 3 && (e.dotTimer || 0) > 0.1) e.takeDamage(p.dmgPerTick * 0.18);
                     }
                 });
             }
@@ -700,7 +850,7 @@ const SKILLS = {
             if (game && game.sfx) game.sfx.play('skill');
             const p = params || (SKILLS['blinding_dart'].getParams ? SKILLS['blinding_dart'].getParams(game, lvl, game.player) : null);
             const targets = game.findNearestEnemies(game.player.x, game.player.y, p.range, p.shots);
-            const mech = (p._meta && p._meta.mech) ? p._meta.mech : 0;
+            const tier = (p._meta && p._meta.tier) ? p._meta.tier : 0;
             targets.forEach(t => {
                 game.projectiles.push(new Projectile(game, game.player.x, game.player.y, t, {
                     damage: p.damage,
@@ -709,13 +859,14 @@ const SKILLS = {
                     type: 'dart',
                     radius: 4,
                     stunDuration: p.stunDuration,
-                    dot: (mech >= 1 ? { dps: Math.max(1, p.damage * 0.18), duration: 2.0, slow: 0.12 } : null),
+                    dot: (tier >= 1 ? { dps: Math.max(1, p.damage * 0.18), duration: 2.0, slow: 0.12 } : null),
                     onHitEnemy: (g, proj, e) => {
-                        if (mech >= 2 && (e.stunned || 0) > 0.01) e.takeDamage(p.damage * 0.35);
+                        metaProcOnEnemyHit(e, p._meta);
+                        if (tier >= 2 && (e.stunned || 0) > 0.01) e.takeDamage(p.damage * 0.35);
                     }
                 }));
             });
-            if (mech >= 3) {
+            if (tier >= 3) {
                 const t = game.findNearestEnemy(game.player.x, game.player.y, p.range);
                 if (t) {
                     game.projectiles.push(new Projectile(game, game.player.x, game.player.y, t, {
@@ -725,7 +876,8 @@ const SKILLS = {
                         type: 'dart',
                         radius: 4,
                         stunDuration: Math.max(0.4, p.stunDuration * 0.6),
-                        dot: { dps: Math.max(1, p.damage * 0.14), duration: 2.2, slow: 0.16 }
+                        dot: { dps: Math.max(1, p.damage * 0.14), duration: 2.2, slow: 0.16 },
+                        onHitEnemy: (g, proj, e) => { metaProcOnEnemyHit(e, p._meta); }
                     }));
                 }
             }
@@ -770,7 +922,7 @@ const SKILLS = {
             // 技能音效：释放（不做受伤/被攻击音效）
             if (game && game.sfx) game.sfx.play('skill');
             const p = params || (SKILLS['mushroom_trap'].getParams ? SKILLS['mushroom_trap'].getParams(game, lvl, game.player) : null);
-            const mech = (p._meta && p._meta.mech) ? p._meta.mech : 0;
+            const tier = (p._meta && p._meta.tier) ? p._meta.tier : 0;
             for (let i = 0; i < p.count; i++) {
                 const ox = (Math.random() - 0.5) * 40;
                 const oy = (Math.random() - 0.5) * 40;
@@ -779,13 +931,13 @@ const SKILLS = {
                     aoeRadius: p.aoeRadius,
                     armTime: p.armTime,
                     stunDuration: p.stunDuration,
-                    leavePool: (mech >= 1 ? {
+                    leavePool: (tier >= 1 ? {
                         radius: p.aoeRadius * 0.72,
-                        duration: (mech >= 3 ? 2.8 : 1.9),
-                        dps: (mech >= 3 ? p.damage * 0.22 : p.damage * 0.16),
+                        duration: (tier >= 3 ? 2.8 : 1.9),
+                        dps: (tier >= 3 ? p.damage * 0.22 : p.damage * 0.16),
                         slow: 0.18
                     } : null),
-                    chainExplode: (mech >= 2)
+                    chainExplode: (tier >= 2)
                 });
             }
         }
@@ -892,29 +1044,31 @@ const SKILLS = {
         onActivate: (game, lvl, params) => {
             if (game && game.sfx) game.sfx.play('skill');
             const p = params || SKILLS['chain_lightning'].getParams(game, lvl, game.player);
-            const mech = (p._meta && p._meta.mech) ? p._meta.mech : 0;
+            const tier = (p._meta && p._meta.tier) ? p._meta.tier : 0;
             const hits = game.findNearestEnemies(game.player.x, game.player.y, p.range, p.jumps);
             let prev = { x: game.player.x, y: game.player.y };
             hits.forEach((e, idx) => {
                 e.takeDamage(p.dmg);
+                metaProcOnEnemyHit(e, p._meta);
                 if (p.stun > 0 && idx === hits.length - 1) e.stunned = Math.max(e.stunned || 0, p.stun);
                 game.addSkillFxLine(prev.x, prev.y, e.x, e.y, 'rgba(33,150,243,0.85)');
                 prev = { x: e.x, y: e.y };
-                if (mech >= 1) {
+                if (tier >= 1) {
                     game.createAoE(e.x, e.y, 70, 0.10, 0, 'rgba(33,150,243,0.18)', 'enemies', {
                         tickInterval: 0.06,
-                        onTickEnemy: (g, ee) => ee.takeDamage(p.dmg * 0.22)
+                        onTickEnemy: (g, ee) => { metaProcOnEnemyHit(ee, p._meta); ee.takeDamage(p.dmg * 0.22); }
                     });
                 }
-                if (mech >= 3 && typeof e.applyDot === 'function') {
+                if (tier >= 3 && typeof e.applyDot === 'function') {
                     e.applyDot(0, 1.0, 0.16);
                 }
             });
-            if (mech >= 2 && hits.length > 0) {
+            if (tier >= 2 && hits.length > 0) {
                 const last = hits[hits.length - 1];
                 const extra = game.findNearestEnemies(last.x, last.y, 220, 2).filter(x => !hits.includes(x))[0];
                 if (extra) {
                     extra.takeDamage(p.dmg * 0.8);
+                    metaProcOnEnemyHit(extra, p._meta);
                     game.addSkillFxLine(last.x, last.y, extra.x, extra.y, 'rgba(144,202,249,0.85)');
                 }
             }
@@ -950,13 +1104,14 @@ const SKILLS = {
         onActivate: (game, lvl, params) => {
             if (game && game.sfx) game.sfx.play('skill');
             const p = params || SKILLS['frost_nova'].getParams(game, lvl, game.player);
-            const mech = (p._meta && p._meta.mech) ? p._meta.mech : 0;
+            const tier = (p._meta && p._meta.tier) ? p._meta.tier : 0;
             const pulses = Math.max(1, Math.floor(p.pulses || 1));
             // 一次性爆发：用 AoE 触发一次 tick + 控制
             const doPulse = (mul) => {
                 game.createAoE(game.player.x, game.player.y, p.radius, 0.12, 0, 'rgba(33, 150, 243, 0.28)', 'enemies', {
                     tickInterval: 0.06,
                     onTickEnemy: (g, e) => {
+                        metaProcOnEnemyHit(e, p._meta);
                         const was = e.stunned || 0;
                         e.stunned = Math.max(was, p.freeze);
                         const extra = (p.shatterBonus > 0 && was > 0.01) ? (p.dmg * p.shatterBonus) : 0;
@@ -970,18 +1125,18 @@ const SKILLS = {
                 setTimeout(() => { if (game && game.state === 'PLAYING') doPulse(mul); }, 90 * (i - 1));
             }
 
-            if (mech >= 1) {
+            if (tier >= 1) {
                 game.createAoE(game.player.x, game.player.y, p.radius * 0.7, 1.9, 0, 'rgba(33,150,243,0.14)', 'enemies', {
                     tickInterval: 0.25,
-                    onTickEnemy: (g, e) => { if (typeof e.applyDot === 'function') e.applyDot(0, 0.9, 0.22); }
+                    onTickEnemy: (g, e) => { metaProcOnEnemyHit(e, p._meta); if (typeof e.applyDot === 'function') e.applyDot(0, 0.9, 0.22); }
                 });
             }
-            if (mech >= 2) {
+            if (tier >= 2) {
                 setTimeout(() => {
                     if (!game || game.state !== 'PLAYING') return;
                     game.createAoE(game.player.x, game.player.y, p.radius * 0.65, 0.12, 0, 'rgba(144,202,249,0.18)', 'enemies', {
                         tickInterval: 0.06,
-                        onTickEnemy: (g, e) => e.takeDamage(p.dmg * 0.45)
+                        onTickEnemy: (g, e) => { metaProcOnEnemyHit(e, p._meta); e.takeDamage(p.dmg * 0.45); }
                     });
                 }, 260);
             }
@@ -1019,9 +1174,9 @@ const SKILLS = {
             if (game && game.sfx) game.sfx.play('skill');
             const p = params || SKILLS['blade_storm'].getParams(game, lvl, game.player);
             const baseX = game.player.x, baseY = game.player.y;
-            const mech = (p._meta && p._meta.mech) ? p._meta.mech : 0;
+            const tier = (p._meta && p._meta.tier) ? p._meta.tier : 0;
             let dot = (game.player && game.player.poisonOnHit) ? { ...game.player.poisonOnHit, dps: (game.player.poisonOnHit.dps || 0) * 0.5 } : null;
-            if (mech >= 1) {
+            if (tier >= 1) {
                 const extra = { dps: 4 + lvl * 1.5, duration: 2.0, slow: 0.12 };
                 if (!dot) dot = extra;
                 else dot = { dps: Math.max(dot.dps || 0, extra.dps), duration: Math.max(dot.duration || 0, extra.duration), slow: Math.max(dot.slow || 0, extra.slow) };
@@ -1034,18 +1189,19 @@ const SKILLS = {
                     speed: p.speed,
                     radius: p.radius,
                     color: 'rgba(255, 215, 0, 0.95)',
-                    dot
+                    dot,
+                    onHitEnemy: (g, proj, e) => { metaProcOnEnemyHit(e, p._meta); }
                 }));
             }
-            const wantReturn = p.returnWave || (mech >= 2);
+            const wantReturn = p.returnWave || (tier >= 2);
             if (wantReturn) {
                 // 小延迟再喷一轮，让“满级有质变”更明显
                 game.skillFx.push({ t: -0.35, d: 0.36, type: 'blade_return', x: baseX, y: baseY, p });
             }
-            if (mech >= 3) {
+            if (tier >= 3) {
                 game.createAoE(baseX, baseY, 120, 1.2, 0, 'rgba(255,215,0,0.10)', 'enemies', {
                     tickInterval: 0.22,
-                    onTickEnemy: (g, e) => e.takeDamage(p.dmg * 0.28)
+                    onTickEnemy: (g, e) => { metaProcOnEnemyHit(e, p._meta); e.takeDamage(p.dmg * 0.28); }
                 });
             }
         }
@@ -1081,7 +1237,7 @@ const SKILLS = {
         onActivate: (game, lvl, params) => {
             if (game && game.sfx) game.sfx.play('skill');
             const p = params || SKILLS['healing_totem'].getParams(game, lvl, game.player);
-            const mech = (p._meta && p._meta.mech) ? p._meta.mech : 0;
+            const tier = (p._meta && p._meta.tier) ? p._meta.tier : 0;
             const totems = Math.max(1, Math.floor(p.totems || 1));
             for (let i = 0; i < totems; i++) {
                 const ang = (totems === 1 ? 0 : (i / totems) * Math.PI * 2);
@@ -1092,19 +1248,19 @@ const SKILLS = {
                 game.createAoE(x, y, p.radius, p.duration, 0, 'rgba(0, 230, 118, 0.18)', 'both', {
                     tickInterval: p.tickInterval,
                     playerDamage: false,
-                    follow: (mech >= 3 ? 'player' : null),
+                    follow: (tier >= 3 ? 'player' : null),
                     onTickPlayer: (g, plr) => {
                         plr.heal(p.heal);
-                        if (mech >= 2) {
+                        if (tier >= 2) {
                             plr.statusBlindTimer = Math.max(0, (plr.statusBlindTimer || 0) - 0.35);
                             plr.statusSlowTimer = Math.max(0, (plr.statusSlowTimer || 0) - 0.35);
                         }
-                        if (mech >= 1) {
+                        if (tier >= 1) {
                             plr.tempDR = Math.max(plr.tempDR || 0, 4 + lvl * 0.5);
                             plr.tempDRTimer = Math.max(plr.tempDRTimer || 0, 1.1);
                         }
                     },
-                    onTickEnemy: (g, e) => { if (p.dmg > 0) e.takeDamage(p.dmg); }
+                    onTickEnemy: (g, e) => { metaProcOnEnemyHit(e, p._meta); if (p.dmg > 0) e.takeDamage(p.dmg); }
                 });
             }
         }
@@ -1140,7 +1296,7 @@ const SKILLS = {
         onActivate: (game, lvl, params) => {
             if (game && game.sfx) game.sfx.play('skill');
             const p = params || SKILLS['meteor_strike'].getParams(game, lvl, game.player);
-            const mech = (p._meta && p._meta.mech) ? p._meta.mech : 0;
+            const tier = (p._meta && p._meta.tier) ? p._meta.tier : 0;
             const meteors = Math.max(1, Math.floor(p.meteors || 1));
             const target = game.findNearestEnemy(game.player.x, game.player.y, 900);
             const cx = target ? target.x : (game.player.x + (Math.random() - 0.5) * 260);
@@ -1159,9 +1315,10 @@ const SKILLS = {
                     dmg: p.dmg * (i === 0 ? 1 : 0.78),
                     burnDps: p.burnDps,
                     burnDur: p.burnDur,
-                    slowDur: (mech >= 2 ? 1.1 : 0),
-                    slow: (mech >= 2 ? 0.22 : 0),
-                    aftershock: (mech >= 1)
+                    slowDur: (tier >= 2 ? 1.1 : 0),
+                    slow: (tier >= 2 ? 0.22 : 0),
+                    aftershock: (tier >= 1),
+                    meta: p._meta || null
                 });
             }
         }
@@ -1186,16 +1343,19 @@ class SaveManager {
             heirlooms: [],
             // Meta progression: Skill shards + unlocked skills
             skillShards: 0,
+            // Legacy (will be migrated): unlockedSkills / skillUpgrades
             unlockedSkills: {}, // { [skillId]: true }
-            // Meta progression: Skill upgrades (out-of-run)
-            skillUpgrades: {},   // { [skillId]: { dmg, range, cd, qty, mech } }
-            skillUpgradesSpent: 0
+            skillUpgrades: {},  // { [skillId]: { dmg, range, cd, qty, mech } }
+            skillUpgradesSpent: 0,
+
+            // New meta system: per-skill level 0~20 (Lv.1 unlocks the skill)
+            skillLevels: {},     // { [skillId]: number }
+            skillLevelsSpent: 0
         };
         // 可由 Game 注入：用于购买成功/失败提示音等（避免在这里硬依赖 Game）
         this.onAddHeirloom = null; // ()=>void
         this.load();
-        this._ensureSkillUnlockDefaults();
-        this._ensureSkillUpgradeDefaults();
+        this._ensureMetaSkillLevelDefaults();
     }
     load() {
         const s = localStorage.getItem('teemo_survivor_v3');
@@ -1212,10 +1372,11 @@ class SaveManager {
         }
     }
 
-    _ensureSkillUnlockDefaults() {
-        // 兼容旧存档：没有 unlockedSkills 时，默认解锁一批基础技能，保证局内升级池不为空。
-        if (!this.data.unlockedSkills || typeof this.data.unlockedSkills !== 'object') this.data.unlockedSkills = {};
+    _ensureMetaSkillLevelDefaults() {
         if (typeof this.data.skillShards !== 'number') this.data.skillShards = 0;
+        if (!this.data.skillLevels || typeof this.data.skillLevels !== 'object') this.data.skillLevels = {};
+        if (typeof this.data.skillLevelsSpent !== 'number') this.data.skillLevelsSpent = 0;
+
         // 旧版 points/talents 迁移：把 points 转成碎片，talents 直接丢弃（已融合进技能系统）
         if (typeof this.data.points === 'number' && this.data.points > 0) {
             this.data.skillShards += Math.floor(this.data.points);
@@ -1223,37 +1384,58 @@ class SaveManager {
         delete this.data.points;
         delete this.data.talents;
 
-        const defaultUnlocked = [
+        // 从旧解锁/旧升级迁移为“技能等级”
+        if (!this.data._migratedToSkillLevels) {
+            if (!this.data.unlockedSkills || typeof this.data.unlockedSkills !== 'object') this.data.unlockedSkills = {};
+            if (!this.data.skillUpgrades || typeof this.data.skillUpgrades !== 'object') this.data.skillUpgrades = {};
+
+            Object.keys(SKILLS || {}).forEach(sid => {
+                let lvl = Math.max(0, Math.floor(this.data.skillLevels[sid] || 0));
+                if (lvl <= 0 && this.data.unlockedSkills[sid]) lvl = 1;
+
+                // 旧多线升级粗略折算：把“已投入”映射到等级（只为保留进度感）
+                const st = this.data.skillUpgrades[sid];
+                if (st && typeof st === 'object') {
+                    const approx = Math.max(0,
+                        Math.floor(st.dmg || 0) +
+                        Math.floor(st.range || 0) +
+                        Math.floor(st.cd || 0) +
+                        Math.floor(st.qty || 0) * 2 +
+                        Math.floor(st.mech || 0) * 3
+                    );
+                    if (approx > 0) lvl = Math.max(lvl, Math.min(META_SKILL_MAX_LEVEL, 1 + approx));
+                }
+
+                if (lvl > 0) this.data.skillLevels[sid] = Math.min(META_SKILL_MAX_LEVEL, lvl);
+            });
+
+            // 旧 spent 合并进新 spent（只做一次）
+            const oldSpent = Math.max(0, Math.floor(this.data.skillUpgradesSpent || 0));
+            if (oldSpent > 0) this.data.skillLevelsSpent = Math.max(this.data.skillLevelsSpent || 0, oldSpent);
+
+            this.data._migratedToSkillLevels = 1;
+        }
+
+        // 新档默认“基础技能”免费解锁到 Lv.1，保证局内升级池不为空
+        const starter = [
             'sharpness', 'quick_draw', 'vitality', 'split_shot',
-            'poison_nova', 'blinding_dart', 'mushroom_trap'
-        ];
-        defaultUnlocked.forEach(id => { this.data.unlockedSkills[id] = true; });
-        // 默认也解锁“原天赋技能”（避免玩家进局后发现少一大块成长点）
-        [
+            'poison_nova', 'blinding_dart', 'mushroom_trap',
+            // 原天赋技能
             'health_boost', 'regen', 'iron_skin',
             'swiftness', 'haste', 'multishot',
             'wisdom', 'meditation', 'reach'
-        ].forEach(id => { this.data.unlockedSkills[id] = true; });
-        // 确保写回一次（仅在老存档首次升级到新版本时）
-        this.save();
-    }
-
-    _ensureSkillUpgradeDefaults() {
-        if (!this.data.skillUpgrades || typeof this.data.skillUpgrades !== 'object') this.data.skillUpgrades = {};
-        if (typeof this.data.skillUpgradesSpent !== 'number') this.data.skillUpgradesSpent = 0;
-
-        // 容错：清理/夹紧非法数据（避免旧存档/手动改存档导致 NaN/负数/超上限）
-        Object.keys(this.data.skillUpgrades).forEach(sid => {
-            const st = this.data.skillUpgrades[sid];
-            if (!st || typeof st !== 'object') { delete this.data.skillUpgrades[sid]; return; }
-            META_UPGRADE_KEYS.forEach(k => {
-                const max = (META_UPGRADE_CONF[k] && META_UPGRADE_CONF[k].max) ? META_UPGRADE_CONF[k].max : 0;
-                const v = Math.max(0, Math.min(max, Math.floor(st[k] || 0)));
-                st[k] = v;
-            });
+        ];
+        starter.forEach(id => {
+            this.data.skillLevels[id] = Math.max(1, Math.floor(this.data.skillLevels[id] || 0));
         });
 
-        this.data.skillUpgradesSpent = Math.max(0, Math.floor(this.data.skillUpgradesSpent || 0));
+        // 容错：夹紧
+        Object.keys(this.data.skillLevels).forEach(sid => {
+            const v = Math.max(0, Math.min(META_SKILL_MAX_LEVEL, Math.floor(this.data.skillLevels[sid] || 0)));
+            this.data.skillLevels[sid] = v;
+        });
+        this.data.skillLevelsSpent = Math.max(0, Math.floor(this.data.skillLevelsSpent || 0));
+
         this.save();
     }
 
@@ -1267,21 +1449,7 @@ class SaveManager {
 
     isSkillUnlocked(skillId) {
         if (!skillId) return false;
-        if (!this.data.unlockedSkills) this.data.unlockedSkills = {};
-        return !!this.data.unlockedSkills[skillId];
-    }
-
-    unlockSkill(skillId) {
-        const def = SKILLS && SKILLS[skillId] ? SKILLS[skillId] : null;
-        if (!def) return false;
-        if (this.isSkillUnlocked(skillId)) return true;
-        const cost = Math.max(0, Math.floor(def.unlockCost || 0));
-        if ((this.data.skillShards || 0) < cost) return false;
-        this.data.skillShards -= cost;
-        this.data.unlockedSkills[skillId] = true;
-        this.save();
-        this.updateUI();
-        return true;
+        return metaIsSkillUnlocked(this, skillId);
     }
 
     updateUI() {
@@ -1307,156 +1475,80 @@ class SaveManager {
             hContainer.classList.add('hidden');
         }
 
-        // Skills unlock list (meta)
-        const sList = document.getElementById('skill-unlock-list');
-        if (sList && typeof SKILLS === 'object') {
-            const ids = Object.keys(SKILLS);
-            // 只展示设置了 unlockCost 的技能（0=默认解锁/免费，也会展示为已解锁）
-            const unlockables = ids
-                .map(id => ({ id, def: SKILLS[id] }))
-                .filter(s => s.def && (s.def.unlockCost !== undefined))
-                .sort((a, b) => (a.def.type === b.def.type ? 0 : (a.def.type === 'active' ? -1 : 1)) || ((a.def.unlockCost || 0) - (b.def.unlockCost || 0)));
-
-            sList.innerHTML = '';
-            unlockables.forEach(s => {
-                const def = s.def;
-                const unlocked = this.isSkillUnlocked(s.id) || (Math.floor(def.unlockCost || 0) === 0);
-                const cost = Math.max(0, Math.floor(def.unlockCost || 0));
-                const tag = def.type === 'active' ? '主动' : '被动';
-                const desc = def.unlockDesc || (def.desc ? def.desc(1) : (def.name || ''));
-                const div = document.createElement('div');
-                div.className = `skill-unlock-card ${unlocked ? 'unlocked' : 'locked'}`;
-                div.innerHTML = `
-                    <div class="skill-unlock-top">
-                        <div>
-                            <div class="skill-unlock-name">${def.name} <span class="skill-unlock-tag">(${tag})</span></div>
-                        </div>
-                        <div class="skill-unlock-cost">${unlocked ? '已解锁' : (cost === 0 ? '免费' : `碎片 ${cost}`)}</div>
-                    </div>
-                    <div class="skill-unlock-desc">${String(desc || '').replaceAll('<','&lt;').replaceAll('>','&gt;')}</div>
-                `;
-                div.onclick = () => {
-                    if (unlocked) return;
-                    const ok = this.unlockSkill(s.id);
-                    if (!ok) {
-                        // 余额不足：轻提示（不弹窗，避免打断）
-                        div.style.borderColor = 'rgba(255,82,82,0.6)';
-                        setTimeout(() => { div.style.borderColor = ''; }, 280);
-                    }
-                };
-                sList.appendChild(div);
-            });
-        }
-
-        // Skills upgrade list (meta)
+        // Skills upgrade list (meta) - new unified system (unlock + upgrade)
         const uList = document.getElementById('skill-upgrade-list');
         if (uList && typeof SKILLS === 'object') {
             const safe = (s) => String(s || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
             const ids = Object.keys(SKILLS)
                 .map(id => ({ id, def: SKILLS[id] }))
-                .filter(s => s.def && s.def.type === 'active')
-                .sort((a, b) => ((a.def.unlockCost || 0) - (b.def.unlockCost || 0)));
+                .filter(s => s.def)
+                .sort((a, b) => (a.def.type === b.def.type ? 0 : (a.def.type === 'active' ? -1 : 1)) || ((a.def.unlockCost || 0) - (b.def.unlockCost || 0)));
 
             uList.innerHTML = '';
             ids.forEach(s => {
                 const def = s.def;
-                const unlocked = this.isSkillUnlocked(s.id) || (Math.floor(def.unlockCost || 0) === 0);
                 const tag = def.type === 'active' ? '主动' : '被动';
-                const st = metaGetStateFromSave(this, s.id);
-                const special = META_SKILL_SPECIAL[s.id] || {};
-
                 const card = document.createElement('div');
+                const curLv = metaGetSkillLevel(this, s.id);
+                const unlocked = curLv >= 1;
+                const isMax = curLv >= META_SKILL_MAX_LEVEL;
+                const cost = isMax ? 0 : metaGetLevelUpCost(s.id, curLv);
+                const nextDesc = metaDescribeNextLevel(s.id, curLv);
+
                 card.className = `skill-upgrade-card ${unlocked ? '' : 'locked'}`;
-
-                const rows = META_UPGRADE_KEYS.map(k => {
-                    const conf = META_UPGRADE_CONF[k];
-                    const now = st[k] || 0;
-                    const max = conf.max;
-                    const isMax = now >= max;
-                    const cost = isMax ? 0 : metaGetUpgradeCost(s.id, k, now);
-
-                    let eff = '';
-                    if (k === 'dmg') eff = `技能伤害 +${Math.round((now + 1) * conf.perLv * 100)}%`;
-                    else if (k === 'range') eff = `技能范围 +${Math.round((now + 1) * conf.perLv * 100)}%`;
-                    else if (k === 'cd') eff = `技能冷却 ×${Math.pow(1 - conf.perLv, now + 1).toFixed(2)}`;
-                    else if (k === 'qty') eff = `+${now + 1} ${safe(special.qtyName || '数量')}`;
-                    else if (k === 'mech') eff = safe((special.mech && special.mech[now]) ? special.mech[now] : `解锁机制 ${now + 1}`);
-
-                    return {
-                        key: k,
-                        kName: conf.name,
-                        lvlText: `Lv.${now}/${max}`,
-                        effText: isMax ? '已满级' : eff,
-                        cost,
-                        disabled: (!unlocked) || isMax
-                    };
-                });
-
                 card.innerHTML = `
                     <div class="skill-upgrade-top">
                         <div class="skill-upgrade-name">${safe(def.name)} <span class="skill-upgrade-tag">(${tag})</span></div>
-                        <div class="skill-upgrade-note">${unlocked ? '点击升级' : '未解锁'}</div>
+                        <div class="skill-upgrade-note">${unlocked ? `Lv.${curLv}/${META_SKILL_MAX_LEVEL}` : `未解锁 (Lv.${curLv}/${META_SKILL_MAX_LEVEL})`}</div>
                     </div>
-                    <div class="skill-upgrade-rows">
-                        ${rows.map(r => `
-                            <div class="skill-upgrade-row" data-sid="${safe(s.id)}" data-key="${safe(r.key)}">
-                                <div class="su-k">${safe(r.kName)}</div>
-                                <div class="su-l">${safe(r.lvlText)}</div>
-                                <div class="su-e">${safe(r.effText)}</div>
-                                <button class="small-btn" ${r.disabled ? 'disabled' : ''}>${r.disabled ? '—' : `升级(碎片${r.cost})`}</button>
-                            </div>
-                        `).join('')}
+                    <div class="skill-upgrade-desc">${safe(nextDesc)}</div>
+                    <div class="skill-upgrade-actions">
+                        <button class="small-btn" ${isMax ? 'disabled' : ''}>${isMax ? '已满级' : (unlocked ? `升级到Lv.${curLv + 1}(碎片${cost})` : `解锁(碎片${cost})`)}</button>
                     </div>
                 `;
 
-                card.querySelectorAll('.skill-upgrade-row').forEach(row => {
-                    const btn = row.querySelector('button');
-                    if (!btn || btn.disabled) return;
+                const btn = card.querySelector('button');
+                if (btn && !btn.disabled) {
                     btn.onclick = () => {
-                        const sid = row.getAttribute('data-sid');
-                        const key = row.getAttribute('data-key');
-                        const ok = this.upgradeSkillMeta(sid, key);
+                        const ok = this.upgradeSkillLevel(s.id);
                         if (!ok) {
                             card.style.borderColor = 'rgba(255,82,82,0.6)';
                             setTimeout(() => { card.style.borderColor = ''; }, 280);
                         }
                     };
-                });
+                }
 
                 uList.appendChild(card);
             });
         }
     }
 
-    upgradeSkillMeta(skillId, key) {
-        if (!skillId || !META_UPGRADE_CONF[key]) return false;
+    upgradeSkillLevel(skillId) {
+        if (!skillId) return false;
         const def = (SKILLS && SKILLS[skillId]) ? SKILLS[skillId] : null;
         if (!def) return false;
-        const free = Math.floor(def.unlockCost || 0) === 0;
-        if (!free && !this.isSkillUnlocked(skillId)) return false;
+        if (!this.data.skillLevels || typeof this.data.skillLevels !== 'object') this.data.skillLevels = {};
 
-        if (!this.data.skillUpgrades || typeof this.data.skillUpgrades !== 'object') this.data.skillUpgrades = {};
-        if (!this.data.skillUpgrades[skillId] || typeof this.data.skillUpgrades[skillId] !== 'object') this.data.skillUpgrades[skillId] = {};
-
-        const conf = META_UPGRADE_CONF[key];
-        const now = Math.max(0, Math.floor(this.data.skillUpgrades[skillId][key] || 0));
-        if (now >= conf.max) return false;
-        const cost = metaGetUpgradeCost(skillId, key, now);
+        const cur = Math.max(0, Math.floor(this.data.skillLevels[skillId] || 0));
+        if (cur >= META_SKILL_MAX_LEVEL) return false;
+        const cost = metaGetLevelUpCost(skillId, cur);
         if ((this.data.skillShards || 0) < cost) return false;
 
         this.data.skillShards -= cost;
-        this.data.skillUpgrades[skillId][key] = now + 1;
-        this.data.skillUpgradesSpent = (this.data.skillUpgradesSpent || 0) + cost;
+        this.data.skillLevels[skillId] = Math.min(META_SKILL_MAX_LEVEL, cur + 1);
+        this.data.skillLevelsSpent = (this.data.skillLevelsSpent || 0) + cost;
         this.save();
         this.updateUI();
         return true;
     }
 
     resetSkillMetaUpgrades() {
-        const spent = Math.max(0, Math.floor(this.data.skillUpgradesSpent || 0));
-        this.data.skillUpgrades = {};
-        this.data.skillUpgradesSpent = 0;
+        const spent = Math.max(0, Math.floor(this.data.skillLevelsSpent || 0));
+        this.data.skillLevels = {};
+        this.data.skillLevelsSpent = 0;
         this.data.skillShards = (this.data.skillShards || 0) + spent;
+        // reset 后仍保留 starter 免费解锁（保证可玩）
+        this._ensureMetaSkillLevelDefaults();
         this.save();
         this.updateUI();
         return spent;
@@ -1777,9 +1869,17 @@ class Enemy {
         this.dotTimer = 0;
         this.dotDps = 0;
         this.dotSlow = 0;
+        // Meta debuffs (from out-of-run progression)
+        this.vulnTimer = 0;
+        this.vulnMul = 0;
     }
 
     update(dt) {
+        // Meta debuff tick
+        if (this.vulnTimer > 0) {
+            this.vulnTimer -= dt;
+            if (this.vulnTimer <= 0) { this.vulnTimer = 0; this.vulnMul = 0; }
+        }
         // DOT tick: keep death handling consistent via takeDamage()
         if (this.dotTimer > 0 && this.dotDps > 0) {
             this.dotTimer -= dt;
@@ -2221,7 +2321,8 @@ class Enemy {
 
     takeDamage(amt) {
         const mul = (this.dmgTakenMul !== undefined ? this.dmgTakenMul : 1);
-        this.hp -= amt * mul;
+        const vuln = (this.vulnTimer > 0 ? (1 + Math.max(0, this.vulnMul || 0)) : 1);
+        this.hp -= amt * mul * vuln;
         if (this.hp <= 0) {
             // Split-on-death (spawn children at current location)
             if (this.split && this.split.count && this.split.childConfig) {
@@ -2323,7 +2424,12 @@ class Player {
         this.attackCooldown *= lvlMul;
 
         Object.keys(this.skills).forEach(id => {
-            if (SKILLS[id].type === 'passive') SKILLS[id].apply(this, this.skills[id]);
+            if (SKILLS[id].type === 'passive') {
+                const inRunLvl = this.skills[id];
+                SKILLS[id].apply(this, inRunLvl);
+                const metaLvl = metaGetSkillLevel(this.game && this.game.saveManager ? this.game.saveManager : null, id);
+                metaApplyPassiveBonus(this, id, inRunLvl, metaLvl);
+            }
         });
         
         this.inventory.forEach(slot => {
@@ -2573,7 +2679,7 @@ class Game {
         if (resetBtn) {
             resetBtn.onclick = () => {
                 this.sfx.play('click');
-                const spent = Math.max(0, Math.floor(this.saveManager.data.skillUpgradesSpent || 0));
+                const spent = Math.max(0, Math.floor(this.saveManager.data.skillLevelsSpent || 0));
                 if (spent <= 0) return;
                 const ok = window.confirm(`确认重置所有局外技能升级？将返还碎片 ${spent}。`);
                 if (!ok) return;
@@ -3299,6 +3405,7 @@ class Game {
                 this.createAoE(m.x, m.y, m.r, 0.15, 0, 'rgba(255, 152, 0, 0.25)', 'enemies', {
                     tickInterval: 0.06,
                     onTickEnemy: (g, e) => {
+                        if (m.meta) metaProcOnEnemyHit(e, m.meta);
                         e.takeDamage(m.dmg);
                         if (m.burnDps > 0 && m.burnDur > 0 && typeof e.applyDot === 'function') {
                             e.applyDot(m.burnDps, m.burnDur, 0);
@@ -3347,7 +3454,8 @@ class Game {
                             speed: p.speed * 0.95,
                             radius: p.radius,
                             color: 'rgba(255, 241, 118, 0.92)',
-                            dot: (this.player && this.player.poisonOnHit) ? { ...this.player.poisonOnHit, dps: (this.player.poisonOnHit.dps || 0) * 0.4 } : null
+                            dot: (this.player && this.player.poisonOnHit) ? { ...this.player.poisonOnHit, dps: (this.player.poisonOnHit.dps || 0) * 0.4 } : null,
+                            onHitEnemy: (g, proj, e) => { if (p && p._meta) metaProcOnEnemyHit(e, p._meta); }
                         }));
                     }
                 }

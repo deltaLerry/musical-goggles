@@ -41,7 +41,7 @@
 
     <!-- Shop Screen (Hidden by default) -->
     <div id="shop-screen" class="hidden">
-        <h2>传承与技能库</h2>
+        <h2>传承与局外成长</h2>
         <div class="currency-display">技能碎片: <span id="shop-skill-shards">0</span></div>
         
         <div id="heirloom-display" class="hidden">
@@ -49,15 +49,9 @@
             <div id="heirloom-list"></div>
         </div>
 
-        <div id="skill-unlock-section">
-            <h3>技能库（关卡外解锁）</h3>
-            <div class="skill-unlock-hint">击败 Boss/精英、连杀里程碑可获得技能碎片；解锁后才会出现在局内升级池。</div>
-            <div id="skill-unlock-list"></div>
-        </div>
-
         <div id="skill-upgrade-section">
             <h3>技能升级（局外成长）</h3>
-            <div class="skill-unlock-hint">消耗技能碎片对已解锁技能进行“局外强化”。这些强化会在每次进入局内时自动生效：伤害/范围/CD/数量/新机制。</div>
+            <div class="skill-unlock-hint">所有技能统一局外等级 0~20。Lv.1 的效果就是“解锁该技能”，解锁后才会进入局内升级池；Lv.2~20 会逐步强化伤害/范围/CD/数量/机制。</div>
             <div class="skill-upgrade-actions">
                 <button id="skill-upgrade-reset-btn" class="small-btn danger">重置局外升级（返还碎片）</button>
             </div>

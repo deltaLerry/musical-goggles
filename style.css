@@ -269,7 +269,7 @@ body {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     gap: 10px;
-    max-height: 34vh;
+    max-height: 52vh;
     overflow: auto;
     padding-right: 6px;
 }
@@ -292,6 +292,16 @@ body {
 .skill-upgrade-name { font-weight: 900; color: #fff; }
 .skill-upgrade-tag { font-size: 11px; font-weight: 900; color: rgba(255,255,255,0.7); }
 .skill-upgrade-note { font-size: 12px; font-weight: 900; color: rgba(128,222,234,0.95); }
+.skill-upgrade-desc {
+    margin-top: 6px;
+    font-size: 12px;
+    color: rgba(255,255,255,0.75);
+    line-height: 1.35;
+    white-space: pre-line;
+}
+.skill-upgrade-card .skill-upgrade-actions {
+    margin: 10px 0 0 0;
+}
 .skill-upgrade-rows { display: flex; flex-direction: column; gap: 6px; }
 .skill-upgrade-row {
     display: grid;
