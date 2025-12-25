@@ -10,6 +10,17 @@
     <!-- Damage Overlay -->
     <div id="damage-overlay"></div>
 
+    <!-- Force Landscape Overlay (mobile) -->
+    <div id="rotate-overlay" class="hidden" aria-hidden="true">
+        <div class="rotate-card" role="dialog" aria-modal="true" aria-label="横屏提示">
+            <div class="rotate-icon">📱↻</div>
+            <div class="rotate-title">请横屏游玩</div>
+            <div class="rotate-desc">本游戏为横屏手游体验。将手机旋转为横屏后自动继续。</div>
+            <button id="rotate-try-btn" class="rotate-btn">点击尝试锁定横屏</button>
+            <div class="rotate-hint">若浏览器不支持强制锁定，请手动旋转屏幕。</div>
+        </div>
+    </div>
+
     <!-- Splash / Loading Screen -->
     <div id="splash-screen">
         <div class="splash-inner">

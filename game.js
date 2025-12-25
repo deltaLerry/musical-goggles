@@ -2995,6 +2995,9 @@ class Game {
         this.setupMobileControls();
         this.updateMobileControlsVisibility();
 
+        // Mobile: force landscape UX (best-effort lock + hard gate overlay in portrait)
+        this.initLandscapeGate();
+
         // 音效系统（仅提示音；不含受伤/被攻击音效）
         this.sfx = new SoundManager();
         this.saveManager = new SaveManager();
@@ -3006,6 +3009,7 @@ class Game {
         const splash = document.getElementById('splash-screen');
         if (splash) {
             splash.onclick = () => {
+                this.tryLockLandscape();
                 splash.classList.add('hidden');
                 document.getElementById('main-menu').classList.remove('hidden');
                 this.saveManager.updateUI();
@@ -3016,9 +3020,9 @@ class Game {
             document.getElementById('main-menu').classList.remove('hidden');
         }
 
-        document.getElementById('start-game-btn').onclick = () => { this.sfx.play('start'); this.openStageSelect(); };
+        document.getElementById('start-game-btn').onclick = () => { this.tryLockLandscape(); this.sfx.play('start'); this.openStageSelect(); };
         document.getElementById('shop-back-btn').onclick = () => { this.sfx.play('close'); this.closeShop(); };
-        document.getElementById('start-bonus-confirm-btn').onclick = () => { this.sfx.play('start'); this.startGame(); };
+        document.getElementById('start-bonus-confirm-btn').onclick = () => { this.tryLockLandscape(); this.sfx.play('start'); this.startGame(); };
 
         // Secondary panel (profile / activities / mail) with swipeable carousel
         const panel = document.getElementById('secondary-panel');
@@ -3679,7 +3683,7 @@ class Game {
         const stageNext = document.getElementById('stage-next');
         if (stageNext) stageNext.onclick = () => { this.sfx.play('click'); this.stageSelectMove(1); };
         const stageConfirm = document.getElementById('stage-confirm-btn');
-        if (stageConfirm) stageConfirm.onclick = () => { this.sfx.play('start'); this.confirmStageSelection(); };
+        if (stageConfirm) stageConfirm.onclick = () => { this.tryLockLandscape(); this.sfx.play('start'); this.confirmStageSelection(); };
 
         const diffRow = document.getElementById('difficulty-row');
         if (diffRow) {
@@ -3693,7 +3697,7 @@ class Game {
 
         // 大厅按钮（关卡间）
         const lobbyNext = document.getElementById('lobby-next-btn');
-        if (lobbyNext) lobbyNext.onclick = () => { this.sfx.play('start'); this.startNextStageFromLobby(); };
+        if (lobbyNext) lobbyNext.onclick = () => { this.tryLockLandscape(); this.sfx.play('start'); this.startNextStageFromLobby(); };
         const lobbyMenu = document.getElementById('lobby-menu-btn');
         if (lobbyMenu) lobbyMenu.onclick = () => { this.sfx.play('close'); this.returnToMenu(); };
 
@@ -3928,6 +3932,81 @@ class Game {
 
         // Keep center accurate across orientation changes / resizes.
         window.addEventListener('resize', () => syncCenterFromElement(), { passive: true });
+    }
+
+    initLandscapeGate() {
+        this._landscape = {
+            isMobile: (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || ('ontouchstart' in window),
+            overlay: document.getElementById('rotate-overlay'),
+            tryBtn: document.getElementById('rotate-try-btn'),
+            pausedState: null,
+            wasPlaying: false,
+        };
+
+        const o = this._landscape;
+        if (o.tryBtn) o.tryBtn.onclick = () => { this.tryLockLandscape(); };
+
+        const onChange = () => this.updateLandscapeGate();
+        window.addEventListener('resize', onChange, { passive: true });
+        window.addEventListener('orientationchange', onChange, { passive: true });
+        document.addEventListener('visibilitychange', onChange, { passive: true });
+
+        this.updateLandscapeGate();
+    }
+
+    isLandscapeNow() {
+        if (window.matchMedia) {
+            const m = window.matchMedia('(orientation: landscape)');
+            if (m && typeof m.matches === 'boolean') return m.matches;
+        }
+        return window.innerWidth >= window.innerHeight;
+    }
+
+    updateLandscapeGate() {
+        const o = this._landscape;
+        if (!o || !o.isMobile || !o.overlay) return;
+
+        const ok = this.isLandscapeNow();
+        if (ok) {
+            o.overlay.classList.add('hidden');
+            o.overlay.setAttribute('aria-hidden', 'true');
+            // Resume if we paused only due to orientation.
+            if (o.pausedState && this.state === 'PAUSED' && o.wasPlaying) {
+                // Only resume if no modal is open.
+                const anyModalVisible = !!document.querySelector('.modal:not(.hidden)');
+                if (!anyModalVisible) {
+                    this.state = o.pausedState;
+                    this.updateMobileControlsVisibility();
+                    this.lastTime = performance.now();
+                }
+            }
+            o.pausedState = null;
+            o.wasPlaying = false;
+            return;
+        }
+
+        // Portrait => hard gate.
+        o.overlay.classList.remove('hidden');
+        o.overlay.setAttribute('aria-hidden', 'false');
+
+        // If in-game playing, pause and remember to resume.
+        if (this.state === 'PLAYING') {
+            o.pausedState = 'PLAYING';
+            o.wasPlaying = true;
+            this.state = 'PAUSED';
+            this.updateMobileControlsVisibility();
+        }
+    }
+
+    async tryLockLandscape() {
+        // Best-effort. Only works in some browsers and usually requires user gesture.
+        try {
+            if (screen && screen.orientation && screen.orientation.lock) {
+                await screen.orientation.lock('landscape');
+            }
+        } catch (_) { }
+        // Re-evaluate gate after attempt.
+        this.updateLandscapeGate();
     }
 
     updateMobileControlsVisibility() {
