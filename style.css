@@ -704,10 +704,17 @@ body {
     padding: 12px 12px 16px 12px;
     overflow-y: auto;
     overscroll-behavior: contain;
+    /* Prevent subtle horizontal "jump" when scrollbar appears/disappears (e.g., stage 2 -> stage 3 boss content). */
+    scrollbar-gutter: stable;
     transform: translateX(105%);
     opacity: 0;
     pointer-events: none;
     transition: transform 180ms ease, opacity 180ms ease;
+}
+
+/* StageSelect specifically: keep gutter stable even on browsers that ignore scrollbar-gutter */
+.panel-view[data-view="stageSelect"] {
+    overflow-y: scroll;
 }
 .panel-view.active {
     transform: translateX(0);
@@ -1857,7 +1864,23 @@ body {
     align-items: flex-start;
     pointer-events: auto;
 }
-#stats-summary { font-size: 18px; font-weight: bold; text-shadow: 1px 1px 2px black; display: flex; gap: 20px; }
+#stats-summary {
+    font-size: 14px;
+    font-weight: 900;
+    text-shadow: 1px 1px 2px black;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
+}
+#stats-summary .stat-box { opacity: 0.92; }
+#stats-summary .hud-vitals {
+    width: min(340px, 56vw);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.hud-sr { display: none; }
 #controls-top { display: flex; gap: 10px; }
 
 #game-messages {
@@ -1996,6 +2019,7 @@ body {
     align-items: stretch;
     pointer-events: auto;
 }
+#bottom-bar { display: none; }
 
 #hp-bar-container {
     width: 100%;

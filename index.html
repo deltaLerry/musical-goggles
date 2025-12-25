@@ -322,13 +322,24 @@
         <div id="hud">
             <div id="top-bar">
                 <div id="stats-summary">
-                    <div class="stat-box">HP: <span id="hp-display">100/100</span></div>
+                    <!-- Keep hp-display for JS, but hide it (we use bar + text). -->
+                    <span id="hp-display" class="hud-sr">100/100</span>
+                    <div class="hud-vitals" aria-label="生命与经验">
+                        <div id="hp-bar-container" aria-label="生命条">
+                            <div id="hp-badge">❤</div>
+                            <div id="hp-bar"></div>
+                            <div id="hp-text">HP</div>
+                        </div>
+                        <div id="exp-bar-container" aria-label="经验条">
+                            <div id="exp-bar"></div>
+                            <div id="exp-text">EXP</div>
+                            <div id="level-badge">1</div>
+                        </div>
+                    </div>
                     <div class="stat-box">Stage: <span id="stage-display">1</span> - <span id="wave-display">1</span>/<span id="wave-total">10</span></div>
                 </div>
                 <div id="controls-top">
                     <button id="pause-btn" class="icon-btn">⏸</button>
-                    <button id="hud-settings-btn" class="icon-btn" title="设置">⚙</button>
-                    <button id="sound-btn" class="icon-btn" title="音效">🔊</button>
                 </div>
             </div>
 
@@ -351,19 +362,7 @@
                 </div>
             </div>
 
-            <!-- Bottom Area: Equipment & EXP -->
-            <div id="bottom-bar">
-                <div id="hp-bar-container" aria-label="生命条">
-                    <div id="hp-badge">❤</div>
-                    <div id="hp-bar"></div>
-                    <div id="hp-text">HP</div>
-                </div>
-                <div id="exp-bar-container">
-                    <div id="exp-bar"></div>
-                    <div id="exp-text">EXP</div>
-                    <div id="level-badge">1</div>
-                </div>
-            </div>
+            <!-- Bottom bar removed: HP/EXP moved to top-left for cleaner HUD -->
         </div>
 
         <!-- Pause / Personal Info Modal -->

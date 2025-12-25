@@ -3492,7 +3492,11 @@ class Player {
 
     takeDamage(amount) {
         const dr = this.damageReduction + (this.tempDRTimer > 0 ? (this.tempDR || 0) : 0);
-        const dmg = Math.max(1, amount - dr);
+        const raw = (amount || 0) - dr;
+        // 连续伤害（通常是接触伤害 damage*dt）：允许小数，避免“每帧至少扣 1”导致重叠瞬间暴毙
+        const isContinuous = (typeof amount === 'number' && amount > 0 && amount < 1.0);
+        const dmg = isContinuous ? Math.max(0, raw) : Math.max(1, raw);
+        if (!(dmg > 0)) return;
         this.hp -= dmg;
         this.game.triggerDamageEffect();
         if (this.hp <= 0) this.game.gameOver();
@@ -4580,18 +4584,7 @@ class Game {
         document.getElementById('quit-btn').onclick = () => { this.sfx.play('close'); this.returnToMenu(); };
         // stats-btn 已移除（关卡内去掉个人信息展示按钮）
 
-        // 关卡内设置：复用大厅面板系统
-        const hudSettingsBtn = document.getElementById('hud-settings-btn');
-        if (hudSettingsBtn) {
-            hudSettingsBtn.onclick = () => {
-                if (this.state === 'PLAYING') {
-                    this.state = 'PAUSED';
-                    this.updateMobileControlsVisibility();
-                }
-                this.sfx?.play('open');
-                if (typeof this._openPanel === 'function') this._openPanel('settings');
-            };
-        }
+        // 关卡内 HUD 不再提供“设置/喇叭”按钮：统一整合到“暂停 · 个人信息”面板里
 
         // 关卡选择界面
         const stageBack = document.getElementById('stage-back-btn');
@@ -4617,28 +4610,7 @@ class Game {
         const lobbyMenu = document.getElementById('lobby-menu-btn');
         if (lobbyMenu) lobbyMenu.onclick = () => { this.sfx.play('close'); this.returnToMenu(); };
 
-        // 音效开关按钮（HUD 顶栏）
-        const soundBtn = document.getElementById('sound-btn');
-        if (soundBtn) {
-            const syncBtn = () => {
-                soundBtn.innerText = this.sfx.enabled ? '🔊' : '🔇';
-                soundBtn.title = this.sfx.enabled ? '音效：开' : '音效：关';
-            };
-            syncBtn();
-            // 供“设置面板”复用
-            this._syncHudSoundBtn = syncBtn;
-            soundBtn.onclick = () => {
-                // 关的时候也给一个“关闭”提示（先播再关，避免永远听不到）
-                if (this.sfx.enabled) {
-                    this.sfx.play('toggleOff');
-                    this.sfx.setEnabled(false);
-                } else {
-                    this.sfx.setEnabled(true);
-                    this.sfx.play('toggleOn');
-                }
-                syncBtn();
-            };
-        }
+        // HUD 音效按钮已移除（音效统一在“暂停”里的设置调整；大厅设置面板仍可用）
 
         this.state = 'MENU';
         // Enemy count tuning (spawn batch size / cap scales with player stats)
@@ -5208,6 +5180,14 @@ class Game {
                 div.innerText = t;
                 preview.appendChild(div);
             });
+            // Elite hint: boss-turned elites can appear in later stages within a run.
+            // Stage select is pre-run, so we show a general rule rather than current run pool.
+            if (meta.id >= 4) {
+                const div = document.createElement('div');
+                div.className = 'enemy-preview-chip';
+                div.innerText = '稀有：弱化Boss精英（不掉装备）';
+                preview.appendChild(div);
+            }
         }
 
         // Boss preview (pool)
@@ -5421,6 +5401,12 @@ class Game {
         this.intensitySmooth = 0;
         this.bossActive = false;
         this.bossRef = null;
+
+        // Elite control per stage (Boss->weakened elites)
+        this.elitesSpawnedThisStage = 0;
+        // Per-stage caps scale mildly with stage; difficulty multiplier is applied in spawnEnemy weights.
+        this.eliteSpawnCapThisStage = (this.stage < 10 ? 1 : (this.stage < 20 ? 2 : 3));
+        this.eliteAliveCap = (this.stage < 16 ? 1 : 2);
         // 注意：精英池跨关卡保留（在 startGame 新轮回开始时才清空）
         document.getElementById('boss-hp-container').classList.add('hidden');
 
@@ -5485,38 +5471,95 @@ class Game {
 
         const themes = {
             meadow: {
-                allowed: ['basic', 'runner', 'tank', 'splitter', 'ranger'],
-                weights: { basic: 14, runner: 6, tank: 4, splitter: 2, ranger: 3 },
+                allowed: ['basic', 'runner', 'tank', 'splitter', 'ranger', 'leaper', 'blinder', 'mosquito', 'brute'],
+                weights: { basic: 14, runner: 6, tank: 4, splitter: 2, ranger: 3, leaper: 2, blinder: 1, mosquito: 2, brute: 1 },
                 labels: ['主力：基础/迅捷/坦克', '点缀：分裂/远程']
             },
             swamp: {
-                allowed: ['basic', 'runner', 'tank', 'ranger', 'poisoner', 'splitter'],
-                weights: { basic: 10, runner: 5, tank: 4, ranger: 3, poisoner: 4, splitter: 2 },
+                allowed: ['basic', 'runner', 'tank', 'ranger', 'poisoner', 'splitter', 'spitter', 'mosquito', 'leaper'],
+                weights: { basic: 10, runner: 5, tank: 4, ranger: 3, poisoner: 4, splitter: 2, spitter: 2, mosquito: 3, leaper: 1 },
                 labels: ['主力：混合', '主题：毒池怪（较多）']
             },
             ruins: {
-                allowed: ['basic', 'runner', 'tank', 'ranger', 'healer', 'shielded', 'splitter'],
-                weights: { basic: 9, runner: 4, tank: 5, ranger: 4, healer: 3, shielded: 3, splitter: 2 },
+                allowed: ['basic', 'runner', 'tank', 'ranger', 'healer', 'shielded', 'splitter', 'witch', 'brute', 'splitter_big'],
+                weights: { basic: 9, runner: 4, tank: 5, ranger: 4, healer: 3, shielded: 3, splitter: 2, witch: 2, brute: 1, splitter_big: 1 },
                 labels: ['主力：混合', '主题：治疗/盾卫（较多）']
             },
             gorge: {
-                allowed: ['basic', 'runner', 'tank', 'ranger', 'kamikaze', 'shielded', 'poisoner'],
-                weights: { basic: 9, runner: 5, tank: 4, ranger: 4, kamikaze: 4, shielded: 2, poisoner: 2 },
+                allowed: ['basic', 'runner', 'tank', 'ranger', 'kamikaze', 'shielded', 'poisoner', 'leaper', 'brute'],
+                weights: { basic: 9, runner: 5, tank: 4, ranger: 4, kamikaze: 4, shielded: 2, poisoner: 2, leaper: 2, brute: 2 },
                 labels: ['主力：混合', '主题：自爆蜂（较多）']
             },
             corridor: {
-                allowed: ['basic', 'runner', 'tank', 'ranger', 'sniper', 'shielded', 'splitter'],
-                weights: { basic: 9, runner: 5, tank: 4, ranger: 4, sniper: 3, shielded: 2, splitter: 2 },
+                allowed: ['basic', 'runner', 'tank', 'ranger', 'sniper', 'shielded', 'splitter', 'blinder', 'assassin'],
+                weights: { basic: 9, runner: 5, tank: 4, ranger: 4, sniper: 3, shielded: 2, splitter: 2, blinder: 2, assassin: 1 },
                 labels: ['主力：混合', '主题：狙击手（较多）']
             },
             void: {
-                allowed: ['basic', 'runner', 'tank', 'ranger', 'warper', 'sniper', 'poisoner', 'kamikaze'],
-                weights: { basic: 8, runner: 5, tank: 4, ranger: 4, warper: 3, sniper: 2, poisoner: 2, kamikaze: 2 },
+                allowed: ['basic', 'runner', 'tank', 'ranger', 'warper', 'sniper', 'poisoner', 'kamikaze', 'assassin', 'blinder'],
+                weights: { basic: 8, runner: 5, tank: 4, ranger: 4, warper: 3, sniper: 2, poisoner: 2, kamikaze: 2, assassin: 2, blinder: 1 },
                 labels: ['主力：混合', '主题：闪现怪（较多）']
             }
         };
 
         const base = themes[theme] || themes.meadow;
+
+        // Stage-by-stage unlocks: guarantee at least one new monster type every 2 stages.
+        // We still keep theme flavor by filtering within each theme's allowed list.
+        const typeNames = {
+            basic: '基础怪',
+            runner: '迅捷怪',
+            tank: '坦克怪',
+            ranger: '远程怪',
+            splitter: '分裂怪',
+            kamikaze: '自爆蜂',
+            healer: '治疗怪',
+            poisoner: '毒池怪',
+            shielded: '盾卫',
+            sniper: '狙击手',
+            warper: '闪现怪',
+            leaper: '跃袭兽',
+            blinder: '致盲飞镖手',
+            witch: '咒医',
+            assassin: '相位刺客',
+            splitter_big: '巨型分裂体',
+            brute: '蛮力巨怪',
+            mosquito: '沼泽蚊群',
+            spitter: '酸液喷吐者',
+        };
+        const unlockSchedule = [
+            { stage: 1, types: ['basic'] },
+            { stage: 2, types: ['runner'] },
+            { stage: 3, types: ['ranger'] },
+            { stage: 4, types: ['tank'] },
+            { stage: 5, types: ['splitter'] },
+            { stage: 6, types: ['kamikaze'] },
+            { stage: 7, types: ['poisoner'] },
+            { stage: 8, types: ['shielded'] },
+            { stage: 9, types: ['sniper'] },
+            { stage: 10, types: ['warper'] },
+            // from here, guarantee every 2 stages
+            { stage: 11, types: ['leaper'] },
+            { stage: 13, types: ['blinder'] },
+            { stage: 15, types: ['witch'] },
+            { stage: 17, types: ['assassin'] },
+            { stage: 19, types: ['splitter_big'] },
+            { stage: 21, types: ['brute'] },
+            { stage: 23, types: ['mosquito'] },
+            { stage: 25, types: ['spitter'] },
+        ];
+        const unlocked = new Set();
+        const newlyUnlocked = [];
+        for (const step of unlockSchedule) {
+            if (s >= step.stage) {
+                for (const t of (step.types || [])) {
+                    if (!unlocked.has(t)) {
+                        unlocked.add(t);
+                        if (s === step.stage) newlyUnlocked.push(t);
+                    }
+                }
+            }
+        }
 
         // 难度分段：越后面“麻烦怪”权重略升，但不要压过基础怪，避免不可读的混乱
         const w = { ...(base.weights || {}) };
@@ -5540,10 +5583,29 @@ class Game {
             return { allowed: ['basic'], weights: { basic: 18 }, labels: ['主力：基础怪（红团子）'] };
         }
 
+        // Filter allowed types by unlocks
+        const allowedFiltered = (base.allowed || ['basic']).filter(t => unlocked.has(t));
+        // Ensure we always have something
+        if (allowedFiltered.length === 0) allowedFiltered.push('basic');
+
+        // Remove weights for locked types
+        const wFiltered = {};
+        for (const [k, vv] of Object.entries(w || {})) {
+            if (unlocked.has(k)) wFiltered[k] = vv;
+        }
+        if (!wFiltered.basic) wFiltered.basic = Math.max(6, (w.basic || 8));
+
+        // Add “new monster” hint into labels for stage preview.
+        const labels = [...(base.labels || [])];
+        if (newlyUnlocked.length > 0) {
+            const names = newlyUnlocked.map(t => typeNames[t] || t).filter(Boolean);
+            labels.push(`新增：${names.slice(0, 2).join('、')}${names.length > 2 ? ` +${names.length - 2}` : ''}`);
+        }
+
         return {
-            allowed: base.allowed || ['basic'],
-            weights: w,
-            labels: (base.labels || [])
+            allowed: allowedFiltered,
+            weights: wFiltered,
+            labels
         };
     }
 
@@ -5562,7 +5624,12 @@ class Game {
         if ((this.eliteBlueprints && this.eliteBlueprints.length > 0) && stageNumber >= 4) {
             const div = document.createElement('div');
             div.className = 'lobby-enemy-chip';
-            div.innerText = `稀有：精英怪（已解锁 ${this.eliteBlueprints.length} 种）`;
+            const names = (this.eliteBlueprints || []).map(b => b && (b.bossName || b.bossType)).filter(Boolean);
+            const shown = names.slice(0, 2);
+            const more = names.length - shown.length;
+            const suffix = (more > 0) ? ` +${more}` : '';
+            // 不掉装备：只有 Boss 才掉装备（用于降低“突然爆装备”的误解）
+            div.innerText = `稀有：弱化Boss精英（不掉装备）${shown.length ? `：${shown.join('、')}${suffix}` : ''}`;
             listEl.appendChild(div);
         }
     }
@@ -5674,6 +5741,118 @@ class Game {
                 blinkCd: 3.1,
                 leap: { cooldown: 3.8, duration: 0.55, speedMul: 2.4 }
             },
+
+            // --- More monster types (variety expansion) ---
+            leaper: {
+                type: 'leaper',
+                hp: 26 * stageHp,
+                speed: 125 * stageSpd,
+                damage: 9,
+                exp: 3,
+                radius: 14,
+                color: '#FFCA28',
+                leap: { cooldown: 3.3, duration: 0.55, speedMul: 2.7 }
+            },
+            blinder: {
+                type: 'blinder',
+                hp: 22 * stageHp,
+                speed: 78 * stageSpd,
+                damage: 12,
+                exp: 4,
+                radius: 13,
+                color: '#8E24AA',
+                isRanged: true,
+                attackRange: 520,
+                rangedProfile: {
+                    cooldown: 3.0,
+                    projSpeed: 560,
+                    color: '#8E24AA',
+                    radius: 4,
+                    onHitBlind: { duration: 0.9 }
+                }
+            },
+            witch: {
+                type: 'witch',
+                hp: 44 * stageHp * 1.05,
+                speed: 82 * stageSpd,
+                damage: 9,
+                exp: 5,
+                radius: 16,
+                color: '#FFD740',
+                aura: { radius: 180, heal: 9, interval: 0.95, color: 'rgba(255, 215, 64, 0.14)' },
+                isRanged: true,
+                attackRange: 440,
+                rangedProfile: {
+                    cooldown: 2.9,
+                    projSpeed: 520,
+                    color: '#FFD740',
+                    radius: 4,
+                    onHitSlow: { duration: 0.85, speedMul: 0.86 }
+                }
+            },
+            assassin: {
+                type: 'assassin',
+                hp: 20 * stageHp * 0.95,
+                speed: 135 * stageSpd,
+                damage: 10,
+                exp: 4,
+                radius: 13,
+                color: '#B388FF',
+                behavior: 'blink',
+                blinkCd: 3.2,
+                leap: { cooldown: 4.2, duration: 0.45, speedMul: 2.5 }
+            },
+            splitter_big: {
+                type: 'splitter_big',
+                hp: 54 * stageHp * 1.1,
+                speed: 92 * stageSpd,
+                damage: 10,
+                exp: 5,
+                radius: 19,
+                color: '#7E57C2',
+                split: {
+                    count: 3,
+                    childConfig: { type: 'mini', hp: 14, speed: 160, damage: 5, exp: 1, radius: 10, color: '#BA68C8' }
+                }
+            },
+            brute: {
+                type: 'brute',
+                hp: 120 * stageHp * 1.12,
+                speed: 52 * stageSpd * 0.92,
+                damage: 18,
+                exp: 6,
+                radius: 28,
+                color: '#6D4C41',
+                dmgTakenMul: 0.8
+            },
+            mosquito: {
+                type: 'mosquito',
+                hp: 14 * stageHp * 0.85,
+                speed: 210 * stageSpd * 1.08,
+                damage: 6,
+                exp: 2,
+                radius: 10,
+                color: '#26A69A',
+                leap: { cooldown: 3.6, duration: 0.35, speedMul: 2.2 }
+            },
+            spitter: {
+                type: 'spitter',
+                hp: 26 * stageHp,
+                speed: 86 * stageSpd,
+                damage: 10,
+                exp: 4,
+                radius: 14,
+                color: '#7CB342',
+                isRanged: true,
+                attackRange: 480,
+                rangedProfile: {
+                    cooldown: 2.7,
+                    projSpeed: 520,
+                    color: '#7CB342',
+                    radius: 4,
+                    onHitSlow: { duration: 0.95, speedMul: 0.82 }
+                }
+            },
         };
         return configs;
     }
@@ -5761,7 +5940,117 @@ class Game {
             rows.push(`<div class="stat-row"><span>击杀回血</span><span class="stat-val">${safe(p.killHeal || 0)}</span></div>`);
         }
 
+        // 设置（整合到暂停面板中；HUD 不再放喇叭/设置）
+        const sfx = this.sfx;
+        if (sfx) {
+            const steps = [0.10, 0.18, 0.26, 0.34, 0.42]; // 5 档
+            const nearestStep = () => {
+                let best = 1, bestD = Infinity;
+                for (let i = 0; i < steps.length; i++) {
+                    const d = Math.abs((sfx.volume || 0) - steps[i]);
+                    if (d < bestD) { bestD = d; best = i + 1; }
+                }
+                return best;
+            };
+            const curStep = nearestStep();
+            rows.push(`<div class="stat-row" style="grid-column: 1 / -1; border-bottom: none; padding-top: 10px;"><span>⚙ 设置</span><span class="stat-val">${sfx.enabled ? '音效：开' : '音效：关'} · 音量 ${curStep}/5</span></div>`);
+            rows.push(`
+                <div style="grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: flex-start; margin-top: 6px;">
+                    <button id="pause-sfx-toggle" class="small-btn">${sfx.enabled ? '关闭音效' : '开启音效'}</button>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        ${[1,2,3,4,5].map(n => `<button class="small-btn" data-pause-vol-step="${n}" ${n===curStep?'style="border-color: rgba(255,215,0,0.35); background: rgba(255,215,0,0.14);"':''}>${n}</button>`).join('')}
+                    </div>
+                </div>
+            `);
+        }
+
         panel.innerHTML = rows.join('');
+
+        // Bind settings actions (re-render on change)
+        const sfxToggle = document.getElementById('pause-sfx-toggle');
+        if (sfxToggle && this.sfx) {
+            sfxToggle.onclick = () => {
+                if (this.sfx.enabled) {
+                    this.sfx.play('toggleOff');
+                    this.sfx.setEnabled(false);
+                } else {
+                    this.sfx.setEnabled(true);
+                    this.sfx.play('toggleOn');
+                }
+                this.updateStatsPanel();
+            };
+        }
+        panel.querySelectorAll('button[data-pause-vol-step]').forEach(btn => {
+            btn.onclick = () => {
+                if (!this.sfx) return;
+                const step = Math.max(1, Math.min(5, Math.floor(Number(btn.getAttribute('data-pause-vol-step') || '1'))));
+                const steps = [0.10, 0.18, 0.26, 0.34, 0.42];
+                this.sfx.setVolume(steps[step - 1]);
+                if (this.sfx.enabled) this.sfx.play('click');
+                this.updateStatsPanel();
+            };
+        });
+    }
+
+    // 轻量“防重叠”：让怪物在更新后互相挤开，减少堆叠导致的触碰伤害叠加
+    resolveEnemyOverlaps(dt) {
+        const arr = this.enemies || [];
+        const n = arr.length;
+        if (n < 2) return;
+        const cellSize = 60;
+        const buckets = new Map();
+        const keyOf = (cx, cy) => `${cx},${cy}`;
+        for (let i = 0; i < n; i++) {
+            const e = arr[i];
+            if (!e) continue;
+            const cx = Math.floor(e.x / cellSize);
+            const cy = Math.floor(e.y / cellSize);
+            const k = keyOf(cx, cy);
+            let b = buckets.get(k);
+            if (!b) { b = []; buckets.set(k, b); }
+            b.push(i);
+        }
+
+        const maxPush = Math.max(0.6, 140 * (dt || 0.016));
+        for (let i = 0; i < n; i++) {
+            const a = arr[i];
+            if (!a) continue;
+            const acx = Math.floor(a.x / cellSize);
+            const acy = Math.floor(a.y / cellSize);
+            for (let oy = -1; oy <= 1; oy++) {
+                for (let ox = -1; ox <= 1; ox++) {
+                    const list = buckets.get(keyOf(acx + ox, acy + oy));
+                    if (!list) continue;
+                    for (let t = 0; t < list.length; t++) {
+                        const j = list[t];
+                        if (j <= i) continue;
+                        const b = arr[j];
+                        if (!b) continue;
+                        const dx = b.x - a.x;
+                        const dy = b.y - a.y;
+                        const r = (a.radius || 0) + (b.radius || 0);
+                        const d2 = dx * dx + dy * dy;
+                        if (d2 <= 0.0001) {
+                            // 完全重叠：随机给一点分离方向
+                            const ang = Math.random() * Math.PI * 2;
+                            const px = Math.cos(ang) * Math.min(maxPush, 6);
+                            const py = Math.sin(ang) * Math.min(maxPush, 6);
+                            a.x -= px; a.y -= py;
+                            b.x += px; b.y += py;
+                            continue;
+                        }
+                        const d = Math.sqrt(d2);
+                        if (d >= r) continue;
+                        const overlap = r - d;
+                        const nx = dx / d;
+                        const ny = dy / d;
+                        const push = Math.min(maxPush, overlap * 0.55);
+                        a.x -= nx * push; a.y -= ny * push;
+                        b.x += nx * push; b.y += ny * push;
+                    }
+                }
+            }
+        }
     }
 
     update(dt) {
@@ -5839,6 +6128,7 @@ class Game {
 
         this.enemies.forEach(e => e.update(dt));
         this.enemies = this.enemies.filter(e => !e.markedForDeletion);
+        this.resolveEnemyOverlaps(dt);
         this.projectiles.forEach(p => p.update(dt));
         this.projectiles = this.projectiles.filter(p => !p.markedForDeletion);
         this.expOrbs.forEach(e => e.update(dt));
@@ -6086,7 +6376,31 @@ class Game {
             }
         }
 
-        // Select Enemy Type
+        // 精英池：Boss 击败后解锁，后续关卡稀有出现（不需要写进关卡 allowed）
+        // 注意：必须在抽取前加入权重，否则永远选不到 elite。
+        if (!this.frenzyActive && this.eliteBlueprints && this.eliteBlueprints.length > 0 && this.stage >= 4) {
+            // 数量控制：每关最多刷出若干只；且场上同时存在也有上限，避免难度尖刺。
+            const spawned = Math.max(0, Math.floor(this.elitesSpawnedThisStage || 0));
+            const capStage = (this.eliteSpawnCapThisStage !== undefined) ? this.eliteSpawnCapThisStage : (this.stage < 10 ? 1 : (this.stage < 20 ? 2 : 3));
+            let alive = 0;
+            for (const e of (this.enemies || [])) {
+                if (!e || e.markedForDeletion) continue;
+                if (e.type === 'elite') alive++;
+            }
+            const aliveCap = (this.eliteAliveCap !== undefined) ? this.eliteAliveCap : (this.stage < 16 ? 1 : 2);
+
+            if (spawned < capStage && alive < aliveCap) {
+                const diff = this.getDifficulty ? this.getDifficulty() : { eliteMul: 1 };
+                const em = (diff && diff.eliteMul !== undefined) ? diff.eliteMul : 1;
+                // 权重不要太高：始终是“稀有插曲”，不是主菜。
+                const baseRare = 0.65 + Math.min(1.1, (this.stage - 4) * 0.06);
+                const poolBonus = 1 + Math.min(1.2, (this.eliteBlueprints.length - 1) * 0.18);
+                const wElite = Math.max(1, Math.floor(baseRare * poolBonus * em));
+                weights['elite'] = (weights['elite'] || 0) + Math.min(3, wElite);
+            }
+        }
+
+        // Select Enemy Type (after all weights are finalized)
         const entries = Object.entries(weights).filter(([, w]) => w > 0);
         const totalWeight = entries.reduce((a, [, b]) => a + b, 0) || 1;
         let random = Math.random() * totalWeight;
@@ -6096,16 +6410,10 @@ class Game {
             if (random <= 0) { type = k; break; }
         }
 
-        // 精英池：Boss 击败后解锁，后续关卡稀有出现（不需要写进关卡 allowed）
-        if (!this.frenzyActive && this.eliteBlueprints && this.eliteBlueprints.length > 0 && this.stage >= 4) {
-            const diff = this.getDifficulty ? this.getDifficulty() : { eliteMul: 1 };
-            const em = (diff && diff.eliteMul !== undefined) ? diff.eliteMul : 1;
-            weights['elite'] = (weights['elite'] || 0) + Math.min(3, Math.floor((1 + this.eliteBlueprints.length * 0.5) * em));
-        }
-
         if (type === 'elite' && this.eliteBlueprints && this.eliteBlueprints.length > 0) {
             const bp = this.eliteBlueprints[Math.floor(Math.random() * this.eliteBlueprints.length)];
             this.enemies.push(new Enemy(this, this.makeEliteConfigFromBlueprint(bp)));
+            this.elitesSpawnedThisStage = (this.elitesSpawnedThisStage || 0) + 1;
             return;
         }
 
@@ -6599,10 +6907,19 @@ class Game {
         if (!boss) return;
         // Store a weakened blueprint that will spawn as an "elite" later.
         // Elite inherits ONE signature mechanic from the boss (readable + not overwhelming).
-        const bt = boss.bossType || 'generic';
+        const bt = String(boss.bossType || 'generic');
+        if (!this.eliteBlueprints) this.eliteBlueprints = [];
+
+        // De-dupe by bossType (one blueprint per boss archetype per run).
+        if (this.eliteBlueprints.some(e => String(e.bossType || '') === bt)) return;
+
+        const meta = this.getBossArchetypesMeta ? (this.getBossArchetypesMeta().find(b => b.id === bt) || null) : null;
         this.eliteBlueprints.push({
             bossType: bt,
-            color: boss.color || '#FFD740'
+            bossName: (meta && meta.name) ? meta.name : bt,
+            bossHint: (meta && meta.hint) ? meta.hint : '',
+            color: boss.color || '#FFD740',
+            unlockedAtStage: Math.max(1, Math.floor(this.stage || 1))
         });
     }
 
@@ -6610,22 +6927,45 @@ class Game {
         const bt = (bp && bp.bossType) ? bp.bossType : 'generic';
         const c = (bp && bp.color) ? bp.color : '#FFD740';
         // Elites: weaker stats, keep ONE boss signature.
+        // IMPORTANT: elites do NOT drop equipment; only bosses drop equipment (see bossDefeated).
+        const s = Math.max(1, Math.floor(this.stage || 1));
+        // Base stats intentionally low; Enemy constructor will scale by level/difficulty.
+        const baseHp = 185 + Math.min(180, s * 9);
+        const baseDmg = 8 + Math.min(10, s * 0.35);
+        const baseSpd = 108 + Math.min(42, s * 1.4);
+
         if (bt === 'queen') {
-            return { type: 'elite', hp: 260, speed: 140, damage: 10, exp: 7, radius: 20, color: c, leap: { cooldown: 3.6, duration: 0.55, speedMul: 2.2 } };
+            return { type: 'elite', hp: baseHp * 1.05, speed: baseSpd * 1.15, damage: baseDmg * 1.05, exp: 7, radius: 20, color: c, leap: { cooldown: 3.8, duration: 0.55, speedMul: 2.2 } };
         }
         if (bt === 'toad') {
-            return { type: 'elite', hp: 280, speed: 115, damage: 10, exp: 7, radius: 22, color: c, behavior: 'trail_poison', trail: { interval: 1.0, radius: 90, duration: 2.2, damage: 4, tickInterval: 0.5, color: 'rgba(124, 179, 66, 0.20)' } };
+            return { type: 'elite', hp: baseHp * 1.12, speed: baseSpd * 0.98, damage: baseDmg, exp: 7, radius: 22, color: c, behavior: 'trail_poison', trail: { interval: 1.05, radius: 90, duration: 2.2, damage: 4, tickInterval: 0.5, color: 'rgba(124, 179, 66, 0.20)' } };
         }
         if (bt === 'gunslinger') {
-            return { type: 'elite', hp: 240, speed: 120, damage: 12, exp: 8, radius: 18, color: c, isRanged: true, attackRange: 520, behavior: 'blink', blinkCd: 4.0, rangedProfile: { cooldown: 2.6, projSpeed: 520, color: c, radius: 4, onHitSlow: { duration: 0.9, speedMul: 0.8 } } };
+            return { type: 'elite', hp: baseHp * 0.98, speed: baseSpd * 1.02, damage: baseDmg * 1.15, exp: 8, radius: 18, color: c, isRanged: true, attackRange: 520, behavior: 'blink', blinkCd: 4.1, rangedProfile: { cooldown: 2.7, projSpeed: 520, color: c, radius: 4, onHitSlow: { duration: 0.85, speedMul: 0.82 } } };
         }
         if (bt === 'priest') {
-            return { type: 'elite', hp: 320, speed: 105, damage: 10, exp: 8, radius: 22, color: c, aura: { radius: 170, heal: 8, interval: 1.0, color: 'rgba(255, 215, 64, 0.12)' }, dmgTakenMul: 0.75 };
+            return { type: 'elite', hp: baseHp * 1.22, speed: baseSpd * 0.92, damage: baseDmg * 0.95, exp: 8, radius: 22, color: c, aura: { radius: 170, heal: 8, interval: 1.0, color: 'rgba(255, 215, 64, 0.12)' }, dmgTakenMul: 0.78 };
         }
         if (bt === 'reaper') {
-            return { type: 'elite', hp: 260, speed: 135, damage: 11, exp: 8, radius: 20, color: c, behavior: 'blink', blinkCd: 3.6, leap: { cooldown: 4.2, duration: 0.5, speedMul: 2.3 } };
+            return { type: 'elite', hp: baseHp * 1.05, speed: baseSpd * 1.10, damage: baseDmg * 1.05, exp: 8, radius: 20, color: c, behavior: 'blink', blinkCd: 3.8, leap: { cooldown: 4.4, duration: 0.5, speedMul: 2.25 } };
         }
-        return { type: 'elite', hp: 260, speed: 120, damage: 10, exp: 7, radius: 20, color: c };
+        if (bt === 'warden') {
+            // Tanky bruiser vibe (reduced incoming damage + slow leap).
+            return { type: 'elite', hp: baseHp * 1.35, speed: baseSpd * 0.88, damage: baseDmg * 1.1, exp: 8, radius: 24, color: c, dmgTakenMul: 0.75, leap: { cooldown: 4.6, duration: 0.45, speedMul: 2.0 } };
+        }
+        if (bt === 'alchemist') {
+            return { type: 'elite', hp: baseHp * 1.1, speed: baseSpd * 1.02, damage: baseDmg * 0.95, exp: 8, radius: 21, color: c, behavior: 'trail_poison', trail: { interval: 0.95, radius: 95, duration: 2.5, damage: 4, tickInterval: 0.45, color: 'rgba(76, 175, 80, 0.16)' } };
+        }
+        if (bt === 'storm') {
+            return { type: 'elite', hp: baseHp * 1.0, speed: baseSpd * 1.05, damage: baseDmg * 1.1, exp: 8, radius: 20, color: c, isRanged: true, attackRange: 560, rangedProfile: { cooldown: 2.9, projSpeed: 600, color: c, radius: 4, onHitSlow: { duration: 0.85, speedMul: 0.84 } } };
+        }
+        if (bt === 'crusher') {
+            return { type: 'elite', hp: baseHp * 1.45, speed: baseSpd * 0.84, damage: baseDmg * 1.2, exp: 9, radius: 26, color: c, leap: { cooldown: 5.0, duration: 0.55, speedMul: 2.1 } };
+        }
+        if (bt === 'chronomancer') {
+            return { type: 'elite', hp: baseHp * 1.08, speed: baseSpd * 1.0, damage: baseDmg * 1.05, exp: 9, radius: 20, color: c, behavior: 'blink', blinkCd: 4.2, isRanged: true, attackRange: 560, rangedProfile: { cooldown: 2.8, projSpeed: 600, color: c, radius: 4, onHitSlow: { duration: 0.95, speedMul: 0.82 } } };
+        }
+        return { type: 'elite', hp: baseHp, speed: baseSpd, damage: baseDmg, exp: 7, radius: 20, color: c };
     }
 
     createHealthPotion(x, y) {
@@ -6772,15 +7112,18 @@ class Game {
     }
 
     updateUI() {
-        document.getElementById('hp-display').innerText = `${Math.ceil(this.player.hp)}/${Math.ceil(this.player.maxHp)}`;
+        const hpDisplay = document.getElementById('hp-display');
+        if (hpDisplay) hpDisplay.innerText = `${Math.ceil(this.player.hp)}/${Math.ceil(this.player.maxHp)}`;
         const hpPct = (this.player.maxHp > 0) ? (this.player.hp / this.player.maxHp) * 100 : 0;
         const hpBar = document.getElementById('hp-bar');
         const hpText = document.getElementById('hp-text');
         if (hpBar) hpBar.style.width = `${Math.max(0, Math.min(100, hpPct))}%`;
         if (hpText) hpText.innerText = `${Math.ceil(this.player.hp)}/${Math.ceil(this.player.maxHp)}`;
         const pct = (this.player.exp / this.player.expToNextLevel) * 100;
-        document.getElementById('exp-bar').style.width = `${pct}%`;
-        document.getElementById('level-badge').innerText = this.player.level;
+        const expBar = document.getElementById('exp-bar');
+        if (expBar) expBar.style.width = `${pct}%`;
+        const lvlBadge = document.getElementById('level-badge');
+        if (lvlBadge) lvlBadge.innerText = this.player.level;
         this.renderSkillPanel();
     }
 
