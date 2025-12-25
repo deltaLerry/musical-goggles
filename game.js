@@ -4690,6 +4690,34 @@ class Game {
             syncPanelUI();
         };
 
+        // In-game: click skill icon -> open panel skill detail (pause to read)
+        const activeSkillsEl = document.getElementById('active-skills');
+        if (activeSkillsEl) {
+            activeSkillsEl.addEventListener('click', (ev) => {
+                const t = ev.target;
+                if (!t || typeof t.closest !== 'function') return;
+                const icon = t.closest('.skill-icon[data-skill]');
+                if (!icon) return;
+                const sid = icon.getAttribute('data-skill');
+                if (!sid) return;
+
+                // Pause only if we are in-game and currently playing
+                const gc = document.getElementById('game-container');
+                const inGame = !!gc && !gc.classList.contains('hidden');
+                if (inGame && this.state === 'PLAYING') {
+                    this.state = 'PAUSED';
+                    this.updateMobileControlsVisibility();
+                }
+
+                panelSelectedSkillId = sid;
+                try { this.sfx?.play('open'); } catch (_) { }
+                openPanel('skillDetail');
+
+                ev.preventDefault();
+                ev.stopPropagation();
+            }, { passive: false });
+        }
+
         const closePanel = () => {
             if (!panel) return;
             panel.classList.add('hidden');
@@ -6894,7 +6922,7 @@ class Game {
             const tip = safe(def.name) + ` (Lv.${lvl})\n` + safe(def.desc ? def.desc(lvl) : '');
 
             html += `
-                <div class="skill-icon ${ready ? 'ready' : ''}" title="${tip}" style="--pct:${(pct * 100).toFixed(1)}; --ring:${safe(ringColor)}">
+                <div class="skill-icon ${ready ? 'ready' : ''}" data-skill="${safe(s.id)}" role="button" aria-label="${safe(def.name)} 技能详情" title="${tip}" style="--pct:${(pct * 100).toFixed(1)}; --ring:${safe(ringColor)}">
                     <svg class="skill-ring" viewBox="0 0 36 36" aria-hidden="true">
                         <circle class="skill-ring-bg" cx="18" cy="18" r="${ringR}" />
                         <circle class="skill-ring-fg" cx="18" cy="18" r="${ringR}"
