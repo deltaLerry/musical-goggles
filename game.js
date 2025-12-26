@@ -2830,6 +2830,9 @@ class Enemy {
         // to the existing collision melee / ranged attack logic.
         this._seekAngle = Math.random() * Math.PI * 2;          // stable per-enemy slot around player
         this._seekRadiusJitter = (Math.random() * 2 - 1);       // [-1, 1] small radius variance
+        this._seekWanderAng = Math.random() * Math.PI * 2;      // slow-changing wander direction
+        this._seekWanderT = Math.random() * 1.3;                // timer for wander updates
+        this._seekScanOffset = (Math.random() * 100000) | 0;    // deterministic-ish offset for neighbor sampling
         
         // Spawn logic: spawn outside current viewport around player (world space)
         if (config.spawnAt && typeof config.spawnAt.x === 'number' && typeof config.spawnAt.y === 'number') {
@@ -3033,30 +3036,89 @@ class Enemy {
         // DOT slow influences movement
         const dotSlowMul = (this.dotSlow > 0 ? (1 - Math.min(0.65, this.dotSlow)) : 1);
 
+        // Wave-based tuning (within a stage): early waves = more dispersed, later waves = tighter pressure.
+        const wavesTotal = Math.max(1, this.game.wavesTotal || 10);
+        const waveIdx = Math.max(1, this.game.wave || 1);
+        const waveT = Math.max(0, Math.min(1, (waveIdx - 1) / Math.max(1, wavesTotal - 1))); // 0..1
+        // NOTE: user preference: always avoid clumping. So keep parameters mostly stable across waves;
+        // wave tuning is subtle (mainly readability / pressure), separation handles the real anti-clump.
+        const ringGrow = 0.34 - 0.06 * waveT;            // 0.34 -> 0.28
+        const rangedDesiredMul = 0.74 - 0.04 * waveT;    // 0.74 -> 0.70
+        const jitterRanged = 14;                         // keep some randomness all the time
+        const jitterMelee = 12;
+
+        // Slow wander: random but smooth, keeps formations from locking into the same lanes.
+        this._seekWanderT += dt;
+        if (this._seekWanderT >= 1.0 + Math.random() * 0.8) {
+            this._seekWanderT = 0;
+            this._seekWanderAng += (Math.random() * 2 - 1) * 1.1; // [-1.1, 1.1] rad step
+        }
+        // Very slow drift of ring slot to prevent persistent "spokes" patterns.
+        this._seekAngle += (0.08 + 0.06 * Math.random()) * dt * (Math.random() < 0.5 ? -1 : 1);
+        const wanderMag = 18 + 10 * (1 - waveT); // slightly more wander earlier, still present late
+        const wanderX = Math.cos(this._seekWanderAng) * wanderMag;
+        const wanderY = Math.sin(this._seekWanderAng) * wanderMag;
+
+        // Separation (anti-clump): push away from nearby enemies.
+        // Kept light and capped to avoid O(n^2) blowups.
+        const enemies = this.game.enemies || [];
+        const sepR = Math.max(70, this.radius * 5);
+        const maxNeighbors = 10;
+        let sepX = 0, sepY = 0, nFound = 0;
+        if (enemies.length > 1) {
+            const len = enemies.length;
+            const start = ((this._seekScanOffset + ((this.x + this.y) | 0)) % len + len) % len;
+            for (let i = 0; i < len && nFound < maxNeighbors; i++) {
+                const e = enemies[(start + i) % len];
+                if (!e || e === this || e.markedForDeletion) continue;
+                if (e.type === 'boss') continue;
+                const ddx = this.x - e.x;
+                const ddy = this.y - e.y;
+                const d = Math.hypot(ddx, ddy);
+                if (d > 0.0001 && d < sepR) {
+                    const t = 1 - (d / sepR);
+                    sepX += (ddx / d) * t;
+                    sepY += (ddy / d) * t;
+                    nFound++;
+                }
+            }
+        }
+
         if (this.isRanged) {
             // Phase 1: approach a distributed ring point around player to avoid stacking.
             // Phase 2: once in comfortable range, keep existing keep-distance behavior + ranged attacks.
             if (distP > this.attackRange * 0.8) {
                 const pad = 220;
-                const desired = Math.max(40, this.attackRange * 0.72);
+                const desired = Math.max(40, this.attackRange * rangedDesiredMul);
                 // Radius increases with distance (but always < distP), so far enemies "index" to a wider ring.
-                let ringR = desired + (distP - desired) * 0.35 + this._seekRadiusJitter * 12;
+                let ringR = desired + (distP - desired) * ringGrow + this._seekRadiusJitter * jitterRanged;
                 ringR = Math.max(desired * 0.9, Math.min(distP - 1, ringR));
-                let tx = px + Math.cos(this._seekAngle) * ringR;
-                let ty = py + Math.sin(this._seekAngle) * ringR;
+                let tx = px + Math.cos(this._seekAngle) * ringR + wanderX;
+                let ty = py + Math.sin(this._seekAngle) * ringR + wanderY;
                 tx = Math.max(pad, Math.min(this.game.worldWidth - pad, tx));
                 ty = Math.max(pad, Math.min(this.game.worldHeight - pad, ty));
                 const mdx = tx - this.x, mdy = ty - this.y;
                 const md = Math.hypot(mdx, mdy);
                 if (md > 0.0001) {
-                    this.x += (mdx / md) * this.speed * speedMulNow * dotSlowMul * dt;
-                    this.y += (mdy / md) * this.speed * speedMulNow * dotSlowMul * dt;
+                    // Blend: ring attraction + separation (dominant) + small wander (already in target).
+                    const sepW = 1.10; // ranged should spread more
+                    let vx = (mdx / md) + sepX * sepW;
+                    let vy = (mdy / md) + sepY * sepW;
+                    const vm = Math.hypot(vx, vy) || 1;
+                    vx /= vm; vy /= vm;
+                    this.x += vx * this.speed * speedMulNow * dotSlowMul * dt;
+                    this.y += vy * this.speed * speedMulNow * dotSlowMul * dt;
                 }
             } else if (distP < this.attackRange * 0.5) {
                 // Back away
                 if (distP > 0.0001) {
-                    this.x -= (dxP / distP) * this.speed * 0.5 * speedMulNow * dotSlowMul * dt;
-                    this.y -= (dyP / distP) * this.speed * 0.5 * speedMulNow * dotSlowMul * dt;
+                    const sepW = 0.55; // don't clump while backing away either
+                    let vx = -(dxP / distP) + sepX * sepW;
+                    let vy = -(dyP / distP) + sepY * sepW;
+                    const vm = Math.hypot(vx, vy) || 1;
+                    vx /= vm; vy /= vm;
+                    this.x += vx * this.speed * 0.5 * speedMulNow * dotSlowMul * dt;
+                    this.y += vy * this.speed * 0.5 * speedMulNow * dotSlowMul * dt;
                 }
             }
             
@@ -3087,22 +3149,34 @@ class Enemy {
             if (distP > engage) {
                 // Phase 1: move to a distributed ring point (radius grows with distance).
                 const pad = 220;
-                let ringR = engage + (distP - engage) * 0.35 + this._seekRadiusJitter * 10;
+                let ringR = engage + (distP - engage) * ringGrow + this._seekRadiusJitter * jitterMelee;
                 ringR = Math.max(engage, Math.min(distP - 1, ringR));
-                let tx = px + Math.cos(this._seekAngle) * ringR;
-                let ty = py + Math.sin(this._seekAngle) * ringR;
+                let tx = px + Math.cos(this._seekAngle) * ringR + wanderX;
+                let ty = py + Math.sin(this._seekAngle) * ringR + wanderY;
                 tx = Math.max(pad, Math.min(this.game.worldWidth - pad, tx));
                 ty = Math.max(pad, Math.min(this.game.worldHeight - pad, ty));
                 const mdx = tx - this.x, mdy = ty - this.y;
                 const md = Math.hypot(mdx, mdy);
                 if (md > 0.0001) {
-                    this.x += (mdx / md) * this.speed * speedMulNow * dotSlowMul * dt;
-                    this.y += (mdy / md) * this.speed * speedMulNow * dotSlowMul * dt;
+                    const sepW = 0.95;
+                    let vx = (mdx / md) + sepX * sepW;
+                    let vy = (mdy / md) + sepY * sepW;
+                    const vm = Math.hypot(vx, vy) || 1;
+                    vx /= vm; vy /= vm;
+                    this.x += vx * this.speed * speedMulNow * dotSlowMul * dt;
+                    this.y += vy * this.speed * speedMulNow * dotSlowMul * dt;
                 }
             } else if (distP > 0.0001) {
                 // Phase 2: within attack distance -> fall back to collision melee.
-                this.x += (dxP / distP) * this.speed * speedMulNow * dotSlowMul * dt;
-                this.y += (dyP / distP) * this.speed * speedMulNow * dotSlowMul * dt;
+                // Keep some separation so they don't become a single pixel, but don't block collision.
+                const closeT = Math.max(0, Math.min(1, (distP - engage * 0.55) / Math.max(1, engage * 1.6)));
+                const sepW = 0.20 + 0.55 * closeT; // 0.20 very close -> 0.75 a bit farther
+                let vx = (dxP / distP) + sepX * sepW;
+                let vy = (dyP / distP) + sepY * sepW;
+                const vm = Math.hypot(vx, vy) || 1;
+                vx /= vm; vy /= vm;
+                this.x += vx * this.speed * speedMulNow * dotSlowMul * dt;
+                this.y += vy * this.speed * speedMulNow * dotSlowMul * dt;
             }
             if (checkCollision(this, this.game.player)) {
                 this.game.player.takeDamage(this.damage * dt);
