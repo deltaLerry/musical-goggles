@@ -599,8 +599,9 @@ const META_SKILL_SPECIAL = {
 const META_FREE_LV1_SKILLS = new Set([
     'sharpness', 'quick_draw', 'vitality', 'split_shot',
     'poison_nova', 'blinding_dart', 'mushroom_trap',
-    'health_boost', 'regen', 'iron_skin',
-    'swiftness', 'haste', 'multishot',
+    // 去重：重复效果技能会迁移合并到“唯一技能”，这里不再给重复项做免费 Lv.1
+    'regen', 'iron_skin',
+    'swiftness',
     'wisdom', 'meditation', 'reach'
 ]);
 
@@ -632,9 +633,16 @@ function metaIsSkillUnlocked(saveManager, skillId) {
 
 function metaGetSkillUnlockStage(saveManager, skillId) {
     const def = (SKILLS && skillId && SKILLS[skillId]) ? SKILLS[skillId] : null;
-    const v = def && def.unlockStage;
-    const s = Math.max(1, Math.floor(v || 1));
-    return s;
+    if (!def) return 1;
+    // 手动配置优先（最可控）
+    if (def.balance && def.balance.unlockStage !== undefined) {
+        return Math.max(1, Math.floor(def.balance.unlockStage || 1));
+    }
+    const manual = Math.max(1, Math.floor(def.unlockStage || 1));
+    // 预算 gating：只对“非基础免费技能”生效（避免把 starter 技能锁走）
+    const needsGate = (Math.floor(def.unlockStage || 1) > 1) || (Math.floor(def.unlockCost || 0) > 0);
+    const budget = (needsGate && def.unlockStageBudget !== undefined) ? Math.max(1, Math.floor(def.unlockStageBudget || 1)) : manual;
+    return Math.max(manual, budget);
 }
 
 function metaCanUnlockSkillNow(saveManager, skillId) {
@@ -652,9 +660,10 @@ function metaGetLevelUpCost(skillId, currentLevel) {
     if (!def) return 999999;
     if (next > META_SKILL_MAX_LEVEL) return 999999;
 
-    // 利用旧的 unlockCost 作为“稀有度/成本锚点”，实现技能库融合但仍有区分度
-    const rarity = Math.max(0, Math.floor(def.unlockCost || 0));
-    const base = (rarity > 0 ? rarity : (def.type === 'active' ? 8 : 5));
+    // 利用 unlockCost（手动）或 rarityAnchor（预算/自动）作为“稀有度/成本锚点”
+    const rarityManual = Math.max(0, Math.floor(def.unlockCost || 0));
+    const rarityAuto = Math.max(0, Math.floor(def.rarityAnchor || 0));
+    const base = (rarityManual > 0 ? rarityManual : (rarityAuto > 0 ? rarityAuto : (def.type === 'active' ? 8 : 5)));
 
     // Lv.1 = 解锁：成本主要由 base 决定；后续指数增长 + 线性项
     const growth = (def.type === 'active' ? 1.18 : 1.16);
@@ -1762,6 +1771,166 @@ const SKILLS = {
     }
 };
 
+// --- 技能系统产品化层：效果唯一 + 强度预算（用于解锁/价格/掉落权重统一标尺） ---
+// 设计目标：
+// 1) 重复效果技能“只保留一种”（其他保留定义以兼容旧存档，但会迁移合并 & 不再进入升级池）
+// 2) 用可调权重把技能强度映射成 powerScore，再映射到 rarityAnchor（成本锚点），方便和关卡进度/产出对齐
+const SKILL_EFFECT_TAG_OVERRIDES = {
+    vitality: 'hp_max_flat',
+    health_boost: 'hp_max_flat',
+    quick_draw: 'atk_speed',
+    haste: 'atk_speed',
+    split_shot: 'split_shot_count',
+    multishot: 'split_shot_count',
+};
+const SKILL_EFFECT_CANONICAL = {
+    hp_max_flat: 'vitality',
+    atk_speed: 'quick_draw',
+    split_shot_count: 'split_shot',
+};
+const SKILL_BUDGET_CFG = {
+    active: { dps: 0.55, area: 10.0, cc: 8.0, utility: 6.0 },
+    passive: { utility: 10.0 },
+};
+
+function getSkillEffectTag(skillId, def) {
+    const d = def || (SKILLS && SKILLS[skillId]);
+    if (!d) return String(skillId || '');
+    if (d.effectTag) return String(d.effectTag);
+    if (SKILL_EFFECT_TAG_OVERRIDES[skillId]) return SKILL_EFFECT_TAG_OVERRIDES[skillId];
+    // 默认：不做自动聚类，保证安全；想合并效果时显式配置 effectTag 即可
+    return String(skillId || '');
+}
+
+function getCanonicalSkillId(skillId) {
+    const def = (SKILLS && SKILLS[skillId]) ? SKILLS[skillId] : null;
+    const tag = getSkillEffectTag(skillId, def);
+    return (SKILL_EFFECT_CANONICAL[tag]) ? SKILL_EFFECT_CANONICAL[tag] : skillId;
+}
+
+function _skillEstimateBaseParams(skillId, def) {
+    if (!def || typeof def.getParams !== 'function') return null;
+    try {
+        // Dummy objects: budget 不绑定某一次 run 的属性/局外成长
+        const dummyGame = { saveManager: null };
+        const dummyCaster = { cdr: 0, skillCdMul: 1, skillDmgMul: 1 };
+        return def.getParams(dummyGame, 1, dummyCaster);
+    } catch (_) {
+        return null;
+    }
+}
+
+function _skillComputePowerScore(skillId, def) {
+    if (!def) return 0;
+    // 允许手动覆写（最可控）
+    if (def.balance && typeof def.balance.powerScore === 'number') return def.balance.powerScore;
+
+    // 被动：用 unlockCost/rarityAnchor（若有）做粗略标尺
+    if (def.type !== 'active') {
+        const rarity = Math.max(0, Math.floor(def.unlockCost || 0));
+        if (rarity > 0) return 10 + rarity * 2;
+        return 14;
+    }
+
+    const p = _skillEstimateBaseParams(skillId, def) || {};
+    const cd = Math.max(0.5, Number(p.cooldown ?? def.cooldown ?? 6));
+    let totalDamage = 0;
+    let areaR = 0;
+    let ccSec = 0;
+    let utility = 0;
+
+    // 伤害估算（粗略：仅用于排序/预算锚点；精确平衡仍建议手动调 def.balance）
+    const mult = Math.max(1, Math.floor(p.shots || p.count || p.meteors || p.blades || 1));
+    if (typeof p.damage === 'number') totalDamage += Math.max(0, p.damage) * mult;
+    if (typeof p.dmg === 'number') totalDamage += Math.max(0, p.dmg) * mult;
+    if (typeof p.dmgPerTick === 'number' && typeof p.duration === 'number') {
+        const tick = Math.max(0.05, Number(p.tickInterval || 0.6));
+        const ticks = Math.max(1, Math.ceil(Math.max(0.1, p.duration) / tick));
+        const casts = Math.max(1, Math.floor(p.novas || p.pulses || p.clouds || 1));
+        totalDamage += Math.max(0, p.dmgPerTick) * ticks * casts;
+    }
+
+    // 影响范围（半径/射程）
+    if (typeof p.radius === 'number') areaR = Math.max(areaR, Math.max(0, p.radius));
+    if (typeof p.aoeRadius === 'number') areaR = Math.max(areaR, Math.max(0, p.aoeRadius));
+    if (typeof p.range === 'number') areaR = Math.max(areaR, Math.max(0, p.range * 0.35)); // 线性射程映射为“影响半径”
+
+    // 控制/功能
+    if (typeof p.stunDuration === 'number') ccSec += Math.max(0, p.stunDuration);
+    if (typeof p.freeze === 'number') ccSec += Math.max(0, p.freeze);
+    if (typeof p.blind === 'number') ccSec += Math.max(0, p.blind) * 0.9;
+    if (typeof p.haste === 'number') utility += Math.max(0, p.haste) * 10;
+
+    const dps = totalDamage / cd;
+    const areaScore = areaR > 0 ? (areaR / 120) : 0;
+    const w = SKILL_BUDGET_CFG.active;
+    const score = dps * w.dps + areaScore * w.area + ccSec * w.cc + utility * w.utility;
+    return Math.max(8, Math.min(120, score));
+}
+
+function skillInitProductization() {
+    if (!SKILLS || typeof SKILLS !== 'object') return;
+    Object.keys(SKILLS).forEach(id => {
+        const def = SKILLS[id];
+        if (!def) return;
+        const tag = getSkillEffectTag(id, def);
+        def.effectTag = tag;
+        const canonical = getCanonicalSkillId(id);
+        def.canonicalId = canonical;
+        def.deprecated = (canonical !== id);
+    });
+    Object.keys(SKILLS).forEach(id => {
+        const def = SKILLS[id];
+        if (!def) return;
+        const score = _skillComputePowerScore(id, def);
+        def.powerScore = score;
+        if (def.rarityAnchor === undefined) {
+            const base = (def.type === 'active') ? 8 : 5;
+            const k = (def.type === 'active') ? 5.2 : 6.5;
+            def.rarityAnchor = Math.max(base, Math.min(26, Math.round(score / k)));
+        }
+
+        // 解锁关卡预算（只给“非基础免费技能”作为参考/兜底 gating；手动 unlockStage 仍保留）
+        const manualStage = Math.max(1, Math.floor(def.unlockStage || 1));
+        const needsGate = (Math.floor(def.unlockStage || 1) > 1) || (Math.floor(def.unlockCost || 0) > 0);
+        if (needsGate) {
+            const sBase = (def.type === 'active') ? 18 : 14;
+            const sStep = (def.type === 'active') ? 14 : 16;
+            const budgetStage = 1 + Math.max(0, Math.floor((score - sBase) / sStep));
+            def.unlockStageBudget = Math.max(1, Math.min(30, budgetStage));
+        } else {
+            def.unlockStageBudget = manualStage;
+        }
+    });
+}
+skillInitProductization();
+
+// Debug helper (optional): in browser console run `dumpSkillBalanceTable()` to inspect budget anchors.
+function dumpSkillBalanceTable() {
+    if (!SKILLS || typeof SKILLS !== 'object') return [];
+    const rows = Object.keys(SKILLS).map(id => {
+        const d = SKILLS[id];
+        return {
+            id,
+            name: d && d.name,
+            type: d && d.type,
+            effectTag: d && d.effectTag,
+            canonical: d && d.canonicalId,
+            deprecated: !!(d && d.deprecated),
+            unlockStage: d && d.unlockStage,
+            unlockStageBudget: d && d.unlockStageBudget,
+            unlockCost: d && d.unlockCost,
+            rarityAnchor: d && d.rarityAnchor,
+            powerScore: d && d.powerScore,
+        };
+    }).sort((a, b) => (a.deprecated === b.deprecated ? 0 : (a.deprecated ? 1 : -1)) || ((a.unlockStage || 1) - (b.unlockStage || 1)) || ((a.powerScore || 0) - (b.powerScore || 0)));
+    try { console.table(rows); } catch (_) { }
+    return rows;
+}
+try {
+    if (typeof window !== 'undefined') window.dumpSkillBalanceTable = dumpSkillBalanceTable;
+} catch (_) { }
+
 // Unified skill sigils (SVG icons) - consistent style across in-run/out-of-run UI
 const SKILL_SIGILS = {
     // Active
@@ -1981,13 +2150,16 @@ class SaveManager {
             'sharpness', 'quick_draw', 'vitality', 'split_shot',
             'poison_nova', 'blinding_dart', 'mushroom_trap',
             // 原天赋技能
-            'health_boost', 'regen', 'iron_skin',
-            'swiftness', 'haste', 'multishot',
+            'regen', 'iron_skin',
+            'swiftness',
             'wisdom', 'meditation', 'reach'
         ];
         starter.forEach(id => {
             this.data.skillLevels[id] = Math.max(1, Math.floor(this.data.skillLevels[id] || 0));
         });
+
+        // 产品化迁移：重复效果技能合并为唯一项（避免重复效果进池/定价冲突）
+        this._migrateDuplicateEffectSkills();
 
         // 容错：夹紧
         Object.keys(this.data.skillLevels).forEach(sid => {
@@ -1997,6 +2169,32 @@ class SaveManager {
         this.data.skillLevelsSpent = Math.max(0, Math.floor(this.data.skillLevelsSpent || 0));
 
         this.save();
+    }
+
+    _migrateDuplicateEffectSkills() {
+        if (!this.data || !this.data.skillLevels || typeof this.data.skillLevels !== 'object') return;
+        const lv = this.data.skillLevels;
+
+        // 规则：重复效果只保留一种（canonical），其余迁移并清零。
+        // - health_boost -> vitality（同为最大生命 +30/级）
+        if ((lv.health_boost || 0) > 0) {
+            lv.vitality = Math.max(lv.vitality || 0, lv.health_boost || 0);
+            lv.health_boost = 0;
+        }
+        // - haste -> quick_draw（均为“普攻更快/攻速”方向）
+        if ((lv.haste || 0) > 0) {
+            lv.quick_draw = Math.max(lv.quick_draw || 0, lv.haste || 0);
+            lv.haste = 0;
+        }
+        // - multishot -> split_shot（同为“分裂箭数量”）
+        //   multishot 只有 1 级，本质是 +1 分裂箭；迁移为 split_shot 等级 +1（封顶）。
+        if ((lv.multishot || 0) > 0) {
+            const cur = Math.max(0, Math.floor(lv.split_shot || 0));
+            const add = Math.max(0, Math.floor(lv.multishot || 0));
+            const maxLv = (SKILLS && SKILLS.split_shot && SKILLS.split_shot.maxLevel) ? SKILLS.split_shot.maxLevel : 5;
+            lv.split_shot = Math.min(maxLv, Math.max(cur, cur + add));
+            lv.multishot = 0;
+        }
     }
 
     getUnlockedStageMax() {
@@ -2222,6 +2420,8 @@ class SaveManager {
             const allSkills = Object.keys(SKILLS)
                 .map(id => ({ id, def: SKILLS[id] }))
                 .filter(s => s.def)
+                // 产品化：重复效果技能不再对外展示（旧存档会在加载时迁移合并）
+                .filter(s => !s.def.deprecated || metaGetSkillLevel(this, s.id) > 0)
                 .map(s => {
                     const metaLv = metaGetSkillLevel(this, s.id);
                     const unlocked = metaLv >= 1;
@@ -8173,14 +8373,21 @@ class Game {
         const c = document.getElementById('upgrade-options');
         c.innerHTML = '';
         const safe = (s) => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+        // 产品化：去重（重复效果只保留一种）+ 避免同一效果出现在同一轮 3 选项中
         const pool = Object.keys(SKILLS)
             .filter(k => this.saveManager && this.saveManager.isSkillUnlocked(k))
-            .filter(k => (this.player.skills[k] || 0) < SKILLS[k].maxLevel);
+            .filter(k => (this.player.skills[k] || 0) < SKILLS[k].maxLevel)
+            .filter(k => !SKILLS[k].deprecated);
         const picks = [];
-        for(let i=0; i<3 && pool.length>0; i++) {
-            const idx = Math.floor(Math.random()*pool.length);
-            picks.push(pool[idx]);
-            pool.splice(idx,1);
+        const seenTags = new Set();
+        while (picks.length < 3 && pool.length > 0) {
+            const idx = Math.floor(Math.random() * pool.length);
+            const id = pool[idx];
+            pool.splice(idx, 1);
+            const tag = (typeof getSkillEffectTag === 'function') ? getSkillEffectTag(id, SKILLS[id]) : id;
+            if (seenTags.has(tag)) continue;
+            seenTags.add(tag);
+            picks.push(id);
         }
         picks.forEach(id => {
             const def = SKILLS[id];
