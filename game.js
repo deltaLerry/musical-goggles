@@ -552,6 +552,46 @@ const META_SKILL_SPECIAL = {
             '灼风：爆炸同时造成短暂减速（DOT减速）',
             '天火：燃烧地面更强（持续/伤害）'
         ]
+    },
+    ember_burst: {
+        qtyName: '爆裂数量',
+        mech: [
+            '燃烬：灼烧目标会短暂减速',
+            '溅火：爆裂命中会溅射一圈小火花',
+            '余烬回响：爆裂命中后追加一次小范围余烬'
+        ]
+    },
+    fortress_stance: {
+        qtyName: '壁垒层数',
+        mech: [
+            '稳固：姿态期间获得更强的临时减伤',
+            '坚忍：姿态期间受到控制时间降低（弱化表达）',
+            '铁壁：姿态结束时触发一次小范围震波（击退/减速表达）'
+        ]
+    },
+    rune_snare: {
+        qtyName: '符文数量',
+        mech: [
+            '迟滞：触发后留下短暂减速区',
+            '连锁：触发时会额外影响附近目标（弱化）',
+            '禁锢：眩晕时间小幅提升'
+        ]
+    },
+    flash_powder: {
+        qtyName: '粉尘团数',
+        mech: [
+            '致盲：控制时间小幅提升',
+            '迷雾：被影响目标短暂减速更强',
+            '标记：被粉尘命中的敌人短暂易伤'
+        ]
+    },
+    time_warp: {
+        qtyName: '回响次数',
+        mech: [
+            '涟漪：释放时对敌人造成更强减速',
+            '回卷：额外推进一次技能冷却进度（弱化）',
+            '余辉：释放后短时间内技能伤害小幅提升（概念）'
+        ]
     }
 };
 
@@ -588,6 +628,21 @@ function metaGetSkillLevel(saveManager, skillId) {
 
 function metaIsSkillUnlocked(saveManager, skillId) {
     return metaGetSkillLevel(saveManager, skillId) >= 1;
+}
+
+function metaGetSkillUnlockStage(saveManager, skillId) {
+    const def = (SKILLS && skillId && SKILLS[skillId]) ? SKILLS[skillId] : null;
+    const v = def && def.unlockStage;
+    const s = Math.max(1, Math.floor(v || 1));
+    return s;
+}
+
+function metaCanUnlockSkillNow(saveManager, skillId) {
+    if (!saveManager || !skillId) return true;
+    const need = metaGetSkillUnlockStage(saveManager, skillId);
+    // Gate by account progression (highest unlocked stage).
+    const cur = (typeof saveManager.getUnlockedStageMax === 'function') ? saveManager.getUnlockedStageMax() : Math.max(1, Math.floor((saveManager.data && saveManager.data.unlockedStageMax) || 1));
+    return cur >= need;
 }
 
 function metaGetLevelUpCost(skillId, currentLevel) {
@@ -716,6 +771,11 @@ function metaApplyToParams(game, skillId, params) {
     if (skillId === 'healing_totem') p.totems = Math.min(5, 1 + qBonus);
     if (skillId === 'meteor_strike') p.meteors = Math.min(5, 1 + qBonus);
     if (skillId === 'poison_nova') p.novas = Math.min(5, 1 + qBonus);
+    if (skillId === 'ember_burst') p.bursts = Math.min(6, 1 + qBonus);
+    if (skillId === 'fortress_stance') p.wards = Math.min(4, 1 + qBonus);
+    if (skillId === 'rune_snare') p.runes = Math.min(6, 1 + qBonus);
+    if (skillId === 'flash_powder') p.clouds = Math.min(6, 1 + qBonus);
+    if (skillId === 'time_warp') p.pulses = Math.min(5, 1 + qBonus);
 
     // 机制的少量“数值补完”（让解锁更明显）
     if (skillId === 'frost_nova' && tier >= 3 && p.freeze !== undefined) p.freeze = p.freeze + 0.25;
@@ -783,43 +843,49 @@ function metaApplyPassiveBonus(player, skillId, inRunSkillLevel, metaLevel) {
 }
 
 const SKILLS = {
-    'sharpness': { id: 'sharpness', name: '锋利', type: 'passive', maxLevel: 10, unlockCost: 0, unlockDesc: '基础被动：稳定提升普攻伤害。', desc: (lvl) => `攻击力 +${12}`, apply: (p, lvl) => p.damage += 12 * lvl },
-    'quick_draw': { id: 'quick_draw', name: '快速拔枪', type: 'passive', maxLevel: 10, unlockCost: 0, unlockDesc: '基础被动：提升普攻频率。', desc: (lvl) => `攻速 +10%`, apply: (p, lvl) => p.attackCooldown *= Math.pow(0.96, lvl) },
-    'vitality': { id: 'vitality', name: '强壮', type: 'passive', maxLevel: 10, unlockCost: 0, unlockDesc: '基础被动：更肉、更稳。', desc: (lvl) => `最大生命 +30`, apply: (p, lvl) => { p.maxHp += 30 * lvl; } },
-    'split_shot': { id: 'split_shot', name: '分裂箭', type: 'passive', maxLevel: 5, unlockCost: 0, unlockDesc: '基础被动：普攻弹幕更密。', desc: (lvl) => `普攻额外发射 ${lvl} 支箭矢 (50%伤害)`, apply: (p, lvl) => p.splitShotCount = lvl },
+    'sharpness': { id: 'sharpness', name: '锋利', type: 'passive', arch: 'swift', sub: 'physical', unlockStage: 1, maxLevel: 10, unlockCost: 0, unlockDesc: '基础被动：稳定提升普攻伤害。', desc: (lvl) => `攻击力 +${12}`, apply: (p, lvl) => p.damage += 12 * lvl },
+    'quick_draw': { id: 'quick_draw', name: '快速拔枪', type: 'passive', arch: 'swift', sub: 'physical', unlockStage: 1, maxLevel: 10, unlockCost: 0, unlockDesc: '基础被动：提升普攻频率。', desc: (lvl) => `攻速 +10%`, apply: (p, lvl) => p.attackCooldown *= Math.pow(0.96, lvl) },
+    'vitality': { id: 'vitality', name: '强壮', type: 'passive', arch: 'stone', sub: 'fortify', unlockStage: 1, maxLevel: 10, unlockCost: 0, unlockDesc: '基础被动：更肉、更稳。', desc: (lvl) => `最大生命 +30`, apply: (p, lvl) => { p.maxHp += 30 * lvl; } },
+    'split_shot': { id: 'split_shot', name: '分裂箭', type: 'passive', arch: 'swift', sub: 'physical', unlockStage: 1, maxLevel: 5, unlockCost: 0, unlockDesc: '基础被动：普攻弹幕更密。', desc: (lvl) => `普攻额外发射 ${lvl} 支箭矢 (50%伤害)`, apply: (p, lvl) => p.splitShotCount = lvl },
     'poison_nova': {
         id: 'poison_nova',
         name: '剧毒新星',
         type: 'active',
+        arch: 'swift',
+        sub: 'poison',
+        unlockStage: 1,
         maxLevel: 5,
         unlockCost: 0,
-        unlockDesc: '基础主动：范围持续伤害，高等级强化机制。',
+        unlockDesc: '基础主动：范围持续伤害（毒）。强度与手感更均衡：减少“近似常驻”的情况，把优势留给中后期局外成长。',
         cooldown: 5,
         getParams: (game, lvl, caster) => {
             // 主动技能CD：避免被减到“几乎为0”。对技能冷却减免做上限，并设置最低CD。
             const cdr = Math.max(0, Math.min(0.6, (caster && caster.cdr) || 0)); // 技能CD减免上限 60%
             const cdMul = (caster && caster.skillCdMul) ? caster.skillCdMul : 1;
-            const rawCd = Math.max(2.3, 5.4 - 0.52 * lvl); // 满级仍保留一点间隔
-            const cooldown = Math.max(1.15, rawCd * (1 - cdr) * cdMul);
-            const radius = 140 + lvl * 22;
-            // 避免满级近似常驻：持续时间提升，但不追求完全覆盖
-            const duration = 2.2 + (lvl >= 3 ? 0.9 : 0);
+            const rawCd = Math.max(3.4, 7.2 - 0.55 * lvl); // 留出间隔：避免过早“常驻”
+            const cooldown = Math.max(1.45, rawCd * (1 - cdr) * cdMul);
+            const radius = 120 + lvl * 16;
+            // 持续时间小幅成长，但不追求覆盖 CD
+            const duration = 1.9 + (lvl >= 3 ? 0.7 : 0);
             const skillMul = (caster && caster.skillDmgMul) ? caster.skillDmgMul : 1;
-            const dmgPerTick = (8 + lvl * 6) * skillMul;
-            const tickInterval = (lvl >= 4 ? 0.4 : 0.5);
-            const followPlayer = (lvl >= 5);
+            const dmgPerTick = (6 + lvl * 4.5) * skillMul;
+            const tickInterval = (lvl >= 4 ? 0.5 : 0.6);
+            // 跟随移动作为“局外机制成长”给到更后期（tier>=2），避免前期强度过载
+            const mlv = (game && game.saveManager) ? metaGetSkillLevel(game.saveManager, 'poison_nova') : 0;
+            const tier = metaGetMechTier(mlv);
+            const followPlayer = (lvl >= 5 && tier >= 2);
             return metaApplyToParams(game, 'poison_nova', { cooldown, radius, duration, dmgPerTick, tickInterval, followPlayer });
         },
         desc: (lvl) => {
-            const cd = Math.max(2.3, 5.4 - 0.52 * lvl);
-            const r = 140 + lvl * 22;
-            const dur = 2.2 + (lvl >= 3 ? 0.9 : 0);
-            const dmg = 8 + lvl * 6;
-            const tick = (lvl >= 4 ? 0.4 : 0.5);
+            const cd = Math.max(3.4, 7.2 - 0.55 * lvl);
+            const r = 120 + lvl * 16;
+            const dur = 1.9 + (lvl >= 3 ? 0.7 : 0);
+            const dmg = 6 + lvl * 4.5;
+            const tick = (lvl >= 4 ? 0.5 : 0.6);
             const mech = [
                 (lvl >= 3 ? 'Lv.3+: 持续时间提升' : ''),
                 (lvl >= 4 ? 'Lv.4+: 毒伤跳数更快' : ''),
-                (lvl >= 5 ? 'Lv.5: 毒圈跟随自身移动' : ''),
+                (lvl >= 5 ? 'Lv.5+:（局外机制解锁后）毒圈可跟随自身移动' : ''),
             ].filter(Boolean).join('；');
             return `释放毒圈：半径 ${r}，持续 ${dur.toFixed(1)}s，每 ${tick}s 造成 ${dmg} 伤害。CD≈${cd.toFixed(1)}s` + (mech ? `\n${mech}` : '');
         },
@@ -851,31 +917,35 @@ const SKILLS = {
         id: 'blinding_dart',
         name: '致盲吹箭',
         type: 'active',
+        arch: 'swift',
+        sub: 'physical',
+        unlockStage: 1,
         maxLevel: 5,
         unlockCost: 0,
-        unlockDesc: '基础主动：点杀控制，满级强化目标数。',
+        unlockDesc: '基础主动：点杀+控制（眩晕）。定位更明确：单体更狠、升级更早获得多目标。',
         cooldown: 3,
         getParams: (game, lvl, caster) => {
             const cdr = Math.max(0, Math.min(0.6, (caster && caster.cdr) || 0));
             const cdMul = (caster && caster.skillCdMul) ? caster.skillCdMul : 1;
-            const rawCd = Math.max(1.7, 3.4 - 0.32 * lvl);
-            const cooldown = Math.max(0.95, rawCd * (1 - cdr) * cdMul);
-            const range = 360 + lvl * 80;
+            const rawCd = Math.max(2.0, 4.0 - 0.36 * lvl);
+            const cooldown = Math.max(1.05, rawCd * (1 - cdr) * cdMul);
+            const range = 380 + lvl * 90;
             const skillMul = (caster && caster.skillDmgMul) ? caster.skillDmgMul : 1;
-            const damage = (22 + lvl * 12) * skillMul;
-            const stunDuration = Math.min(2.2, 0.7 + lvl * 0.22);
-            const shots = (lvl >= 5 ? 2 : 1);
+            const damage = (30 + lvl * 15) * skillMul;
+            const stunDuration = Math.min(2.0, 0.65 + lvl * 0.18);
+            const shots = (lvl >= 5 ? 3 : (lvl >= 4 ? 2 : 1));
             return metaApplyToParams(game, 'blinding_dart', { cooldown, range, damage, stunDuration, shots });
         },
         desc: (lvl) => {
-            const cd = Math.max(1.7, 3.4 - 0.32 * lvl);
-            const range = 360 + lvl * 80;
-            const dmg = 22 + lvl * 12;
-            const stun = Math.min(2.2, 0.7 + lvl * 0.22);
+            const cd = Math.max(2.0, 4.0 - 0.36 * lvl);
+            const range = 380 + lvl * 90;
+            const dmg = 30 + lvl * 15;
+            const stun = Math.min(2.0, 0.65 + lvl * 0.18);
             const mech = [
                 `射程 ${range}`,
-                (lvl >= 5 ? 'Lv.5: 同时攻击 2 个目标' : ''),
-                (lvl >= 3 ? `眩晕≈${stun.toFixed(1)}s` : ''),
+                (lvl >= 4 ? 'Lv.4+: 同时攻击 2 个目标' : ''),
+                (lvl >= 5 ? 'Lv.5: 同时攻击 3 个目标' : ''),
+                (lvl >= 2 ? `眩晕≈${stun.toFixed(1)}s` : ''),
             ].filter(Boolean).join('；');
             return `向最近敌人发射吹箭，造成 ${dmg} 伤害。CD≈${cd.toFixed(1)}s\n${mech}`;
         },
@@ -921,6 +991,9 @@ const SKILLS = {
         id: 'mushroom_trap',
         name: '种蘑菇',
         type: 'active',
+        arch: 'insight',
+        sub: 'trap',
+        unlockStage: 1,
         maxLevel: 5,
         unlockCost: 0,
         unlockDesc: '基础主动：布置陷阱，兼顾伤害与控制。',
@@ -977,22 +1050,25 @@ const SKILLS = {
         }
     },
     // ===== Former TALENTS merged into SKILLS (passives) =====
-    'health_boost': { id: 'health_boost', name: '体魄', type: 'passive', maxLevel: 5, unlockCost: 0, unlockDesc: '原天赋：最大生命提升。', desc: (lvl) => `最大生命 +30`, apply: (p, lvl) => { p.maxHp += 30 * lvl; } },
-    'regen': { id: 'regen', name: '再生', type: 'passive', maxLevel: 3, unlockCost: 0, unlockDesc: '原天赋：持续回血。', desc: (lvl) => `每秒回血 +1.5`, apply: (p, lvl) => { p.regen += 1.5 * lvl; } },
-    'iron_skin': { id: 'iron_skin', name: '铁皮', type: 'passive', maxLevel: 3, unlockCost: 0, unlockDesc: '原天赋：减伤。', desc: (lvl) => `伤害减免 +3`, apply: (p, lvl) => { p.damageReduction += 3 * lvl; } },
-    'swiftness': { id: 'swiftness', name: '迅捷', type: 'passive', maxLevel: 5, unlockCost: 0, unlockDesc: '原天赋：移速提升。', desc: (lvl) => `移速 +15`, apply: (p, lvl) => { p.speed += 15 * lvl; } },
-    'haste': { id: 'haste', name: '急速', type: 'passive', maxLevel: 5, unlockCost: 0, unlockDesc: '原天赋：普攻更快。', desc: (lvl) => `攻速 +5%`, apply: (p, lvl) => { p.attackCooldown *= Math.pow(0.95, lvl); } },
+    'health_boost': { id: 'health_boost', name: '体魄', type: 'passive', arch: 'stone', sub: 'fortify', unlockStage: 1, maxLevel: 5, unlockCost: 0, unlockDesc: '原天赋：最大生命提升。', desc: (lvl) => `最大生命 +30`, apply: (p, lvl) => { p.maxHp += 30 * lvl; } },
+    'regen': { id: 'regen', name: '再生', type: 'passive', arch: 'stone', sub: 'heal', unlockStage: 1, maxLevel: 3, unlockCost: 0, unlockDesc: '原天赋：持续回血。', desc: (lvl) => `每秒回血 +1.5`, apply: (p, lvl) => { p.regen += 1.5 * lvl; } },
+    'iron_skin': { id: 'iron_skin', name: '铁皮', type: 'passive', arch: 'stone', sub: 'fortify', unlockStage: 1, maxLevel: 3, unlockCost: 0, unlockDesc: '原天赋：减伤。', desc: (lvl) => `伤害减免 +3`, apply: (p, lvl) => { p.damageReduction += 3 * lvl; } },
+    'swiftness': { id: 'swiftness', name: '迅捷', type: 'passive', arch: 'insight', sub: 'utility', unlockStage: 1, maxLevel: 5, unlockCost: 0, unlockDesc: '原天赋：移速提升。', desc: (lvl) => `移速 +15`, apply: (p, lvl) => { p.speed += 15 * lvl; } },
+    'haste': { id: 'haste', name: '急速', type: 'passive', arch: 'swift', sub: 'physical', unlockStage: 1, maxLevel: 5, unlockCost: 0, unlockDesc: '原天赋：普攻更快。', desc: (lvl) => `攻速 +5%`, apply: (p, lvl) => { p.attackCooldown *= Math.pow(0.95, lvl); } },
     // multishot 在旧代码中无实际生效点（splitShotChance 未使用），改为：提升分裂箭“数量”（上限 1）
-    'multishot': { id: 'multishot', name: '多重射击', type: 'passive', maxLevel: 1, unlockCost: 0, unlockDesc: '原天赋重做：分裂箭 +1（若已学分裂箭则更强）。', desc: (lvl) => `分裂箭 +1`, apply: (p, lvl) => { p.splitShotCount = Math.max(p.splitShotCount || 0, lvl); } },
-    'wisdom': { id: 'wisdom', name: '智慧', type: 'passive', maxLevel: 5, unlockCost: 0, unlockDesc: '原天赋：经验获取提升。', desc: (lvl) => `经验获取 +10%`, apply: (p, lvl) => { p.expMultiplier += 0.1 * lvl; } },
-    'meditation': { id: 'meditation', name: '冥想', type: 'passive', maxLevel: 3, unlockCost: 0, unlockDesc: '原天赋：技能冷却更快（对主动技能 CD 生效）。', desc: (lvl) => `技能冷却 -10%`, apply: (p, lvl) => { p.cdr += 0.1 * lvl; } },
-    'reach': { id: 'reach', name: '掌控', type: 'passive', maxLevel: 3, unlockCost: 0, unlockDesc: '原天赋：拾取范围提升。', desc: (lvl) => `拾取范围 +20%`, apply: (p, lvl) => { p.magnetMultiplier += 0.2 * lvl; } },
+    'multishot': { id: 'multishot', name: '多重射击', type: 'passive', arch: 'swift', sub: 'physical', unlockStage: 1, maxLevel: 1, unlockCost: 0, unlockDesc: '原天赋重做：分裂箭 +1（若已学分裂箭则更强）。', desc: (lvl) => `分裂箭 +1`, apply: (p, lvl) => { p.splitShotCount = Math.max(p.splitShotCount || 0, lvl); } },
+    'wisdom': { id: 'wisdom', name: '智慧', type: 'passive', arch: 'insight', sub: 'utility', unlockStage: 1, maxLevel: 5, unlockCost: 0, unlockDesc: '原天赋：经验获取提升。', desc: (lvl) => `经验获取 +10%`, apply: (p, lvl) => { p.expMultiplier += 0.1 * lvl; } },
+    'meditation': { id: 'meditation', name: '冥想', type: 'passive', arch: 'insight', sub: 'cd', unlockStage: 1, maxLevel: 3, unlockCost: 0, unlockDesc: '原天赋：技能冷却更快（对主动技能 CD 生效）。', desc: (lvl) => `技能冷却 -10%`, apply: (p, lvl) => { p.cdr += 0.1 * lvl; } },
+    'reach': { id: 'reach', name: '掌控', type: 'passive', arch: 'insight', sub: 'utility', unlockStage: 1, maxLevel: 3, unlockCost: 0, unlockDesc: '原天赋：拾取范围提升。', desc: (lvl) => `拾取范围 +20%`, apply: (p, lvl) => { p.magnetMultiplier += 0.2 * lvl; } },
 
     // ===== New Skill Pool (unlockable) =====
     'arcane_amp': {
         id: 'arcane_amp',
         name: '奥术增幅',
         type: 'passive',
+        arch: 'insight',
+        sub: 'amp',
+        unlockStage: 2,
         maxLevel: 8,
         unlockCost: 10,
         unlockDesc: '让主动技能体系更成型：提高技能伤害，并在高等级强化技能节奏。',
@@ -1010,6 +1086,9 @@ const SKILLS = {
         id: 'toxic_blades',
         name: '毒刃',
         type: 'passive',
+        arch: 'swift',
+        sub: 'poison',
+        unlockStage: 2,
         maxLevel: 6,
         unlockCost: 12,
         unlockDesc: '普攻附带持续伤害，让你不只靠一锤子买卖。',
@@ -1031,6 +1110,9 @@ const SKILLS = {
         id: 'adrenaline',
         name: '肾上腺',
         type: 'passive',
+        arch: 'swift',
+        sub: 'physical',
+        unlockStage: 3,
         maxLevel: 5,
         unlockCost: 14,
         unlockDesc: '击杀滚雪球：越杀越快，构筑“连杀型”手感。',
@@ -1052,6 +1134,9 @@ const SKILLS = {
         id: 'chain_lightning',
         name: '连锁闪电',
         type: 'active',
+        arch: 'swift',
+        sub: 'lightning',
+        unlockStage: 3,
         maxLevel: 5,
         unlockCost: 18,
         unlockDesc: '“点名清怪”主动：对密集怪特别强，升级会提升跳跃次数与控制。',
@@ -1112,6 +1197,9 @@ const SKILLS = {
         id: 'frost_nova',
         name: '冰霜新星',
         type: 'active',
+        arch: 'insight',
+        sub: 'control',
+        unlockStage: 3,
         maxLevel: 5,
         unlockCost: 16,
         unlockDesc: '“保命控场”主动：贴身爆发冻结，升级会扩大范围并强化控制。',
@@ -1181,6 +1269,9 @@ const SKILLS = {
         id: 'blade_storm',
         name: '刀刃风暴',
         type: 'active',
+        arch: 'swift',
+        sub: 'physical',
+        unlockStage: 6,
         maxLevel: 5,
         unlockCost: 20,
         unlockDesc: '“清屏爆发”主动：向四周喷射刀刃，适合近战突围与收割。',
@@ -1244,6 +1335,9 @@ const SKILLS = {
         id: 'healing_totem',
         name: '治愈图腾',
         type: 'active',
+        arch: 'stone',
+        sub: 'heal',
+        unlockStage: 4,
         maxLevel: 5,
         unlockCost: 16,
         unlockDesc: '“站桩续航”主动：放一个短时间治疗区域（不强制你贴脸）。',
@@ -1303,6 +1397,9 @@ const SKILLS = {
         id: 'meteor_strike',
         name: '陨石术',
         type: 'active',
+        arch: 'swift',
+        sub: 'fire',
+        unlockStage: 5,
         maxLevel: 5,
         unlockCost: 22,
         unlockDesc: '“延迟爆发”主动：给玩家一个“预判换位”的高级玩法。',
@@ -1356,6 +1453,312 @@ const SKILLS = {
                 });
             }
         }
+    },
+
+    // ===== New skills (classified) =====
+    'ember_burst': {
+        id: 'ember_burst',
+        name: '余烬爆裂',
+        type: 'active',
+        arch: 'swift',
+        sub: 'fire',
+        unlockStage: 2,
+        maxLevel: 5,
+        unlockCost: 14,
+        unlockDesc: '迅猛·火：锁定近处敌人引爆。稳定的中距离清怪技，后期局外成长会提升数量与机制。',
+        cooldown: 6,
+        getParams: (game, lvl, caster) => {
+            const cdr = Math.max(0, Math.min(0.6, (caster && caster.cdr) || 0));
+            const cdMul = (caster && caster.skillCdMul) ? caster.skillCdMul : 1;
+            const rawCd = Math.max(2.6, 6.8 - 0.55 * lvl);
+            const cooldown = Math.max(1.4, rawCd * (1 - cdr) * cdMul);
+            const radius = 110 + lvl * 16;
+            const skillMul = (caster && caster.skillDmgMul) ? caster.skillDmgMul : 1;
+            const dmg = (40 + lvl * 18) * skillMul;
+            const burnDps = (lvl >= 4 ? (10 + lvl * 5) * skillMul : 0);
+            const burnDur = (lvl >= 4 ? 2.0 : 0);
+            const bursts = 1;
+            return metaApplyToParams(game, 'ember_burst', { cooldown, radius, dmg, burnDps, burnDur, bursts });
+        },
+        desc: (lvl) => {
+            const rawCd = Math.max(2.6, 6.8 - 0.55 * lvl);
+            const radius = 110 + lvl * 16;
+            const dmg = 40 + lvl * 18;
+            const mech = (lvl >= 4 ? 'Lv.4+: 留下短暂灼烧地面' : '');
+            return `引爆目标：半径 ${radius}，伤害 ${dmg}。CD≈${rawCd.toFixed(1)}s` + (mech ? `\n${mech}` : '');
+        },
+        onActivate: (game, lvl, params) => {
+            if (game && game.sfx) game.sfx.play('skill');
+            const p = params || SKILLS['ember_burst'].getParams(game, lvl, game.player);
+            const tier = (p._meta && p._meta.tier) ? p._meta.tier : 0;
+            const bursts = Math.max(1, Math.floor(p.bursts || 1));
+            const targets = game.findNearestEnemies(game.player.x, game.player.y, 720, bursts);
+            for (let i = 0; i < bursts; i++) {
+                const t = targets[i] || null;
+                const x = t ? t.x : (game.player.x + (Math.random() - 0.5) * 260);
+                const y = t ? t.y : (game.player.y + (Math.random() - 0.5) * 260);
+                game.createAoE(x, y, p.radius, 0.12, 0, 'rgba(255, 152, 0, 0.22)', 'enemies', {
+                    tickInterval: 0.06,
+                    onTickEnemy: (g, e) => { metaProcOnEnemyHit(e, p._meta); e.takeDamage(p.dmg); }
+                });
+                if (p.burnDps > 0 && p.burnDur > 0) {
+                    game.createAoE(x, y, p.radius * 0.72, p.burnDur, 0, 'rgba(255, 82, 82, 0.14)', 'enemies', {
+                        tickInterval: 0.45,
+                        onTickEnemy: (g, e, z) => {
+                            metaProcOnEnemyHit(e, p._meta);
+                            // apply once per enemy per zone
+                            z._hit = z._hit || new Set();
+                            if (z._hit.has(e)) return;
+                            z._hit.add(e);
+                            if (typeof e.applyDot === 'function') e.applyDot(p.burnDps, p.burnDur, (tier >= 2 ? 0.12 : 0));
+                        }
+                    });
+                }
+            }
+        }
+    },
+
+    'fortress_stance': {
+        id: 'fortress_stance',
+        name: '壁垒姿态',
+        type: 'active',
+        arch: 'stone',
+        sub: 'shield',
+        unlockStage: 2,
+        maxLevel: 5,
+        unlockCost: 16,
+        unlockDesc: '磐石·护盾：短时间获得强力减伤并持续小幅回血。给“站得住”的玩家一个明确按钮。',
+        cooldown: 10,
+        getParams: (game, lvl, caster) => {
+            const cdr = Math.max(0, Math.min(0.6, (caster && caster.cdr) || 0));
+            const cdMul = (caster && caster.skillCdMul) ? caster.skillCdMul : 1;
+            const rawCd = Math.max(4.5, 11.0 - 0.8 * lvl);
+            const cooldown = Math.max(2.2, rawCd * (1 - cdr) * cdMul);
+            const duration = 2.4 + lvl * 0.5;
+            const dr = 6 + lvl * 2;
+            const healTick = 3 + lvl * 1.4;
+            const wards = 1;
+            return metaApplyToParams(game, 'fortress_stance', { cooldown, duration, dr, healTick, wards });
+        },
+        desc: (lvl) => {
+            const rawCd = Math.max(4.5, 11.0 - 0.8 * lvl);
+            const duration = 2.4 + lvl * 0.5;
+            const dr = 6 + lvl * 2;
+            const heal = 3 + lvl * 1.4;
+            return `进入壁垒姿态：持续 ${duration.toFixed(1)}s，减伤 +${dr}，每0.5s 回复 ${heal.toFixed(0)}。CD≈${rawCd.toFixed(1)}s`;
+        },
+        onActivate: (game, lvl, params) => {
+            if (game && game.sfx) game.sfx.play('skill');
+            const p = params || SKILLS['fortress_stance'].getParams(game, lvl, game.player);
+            const pl = game.player;
+            if (!pl) return;
+            const extra = Math.max(0, (Math.floor(p.wards || 1) - 1));
+            const dur = Math.max(0.6, (p.duration || 2.0) + extra * 0.35);
+            pl.tempDR = Math.max(pl.tempDR || 0, p.dr || 0);
+            pl.tempDRTimer = Math.max(pl.tempDRTimer || 0, dur);
+            game.createAoE(pl.x, pl.y, 150, dur, 0, 'rgba(255, 215, 64, 0.14)', 'player', {
+                follow: 'player',
+                playerDamage: false,
+                tickInterval: 0.5,
+                onTickPlayer: (g, player) => {
+                    player.tempDR = Math.max(player.tempDR || 0, p.dr || 0);
+                    player.tempDRTimer = Math.max(player.tempDRTimer || 0, 0.75);
+                    if (p.healTick) player.heal(p.healTick);
+                }
+            });
+        }
+    },
+
+    'rune_snare': {
+        id: 'rune_snare',
+        name: '符文缚锁',
+        type: 'active',
+        arch: 'insight',
+        sub: 'trap',
+        unlockStage: 2,
+        maxLevel: 5,
+        unlockCost: 14,
+        unlockDesc: '启迪·陷阱：布置符文陷阱，短暂延迟后触发，命中会眩晕并造成伤害。',
+        cooldown: 7,
+        getParams: (game, lvl, caster) => {
+            const cdr = Math.max(0, Math.min(0.6, (caster && caster.cdr) || 0));
+            const cdMul = (caster && caster.skillCdMul) ? caster.skillCdMul : 1;
+            const rawCd = Math.max(2.8, 7.5 - 0.55 * lvl);
+            const cooldown = Math.max(1.5, rawCd * (1 - cdr) * cdMul);
+            const radius = 120 + lvl * 14;
+            const duration = 3.0 + lvl * 0.35;
+            const armTime = Math.max(0.35, 0.65 - 0.06 * lvl);
+            const skillMul = (caster && caster.skillDmgMul) ? caster.skillDmgMul : 1;
+            const dmg = (18 + lvl * 10) * skillMul;
+            const stun = Math.min(1.7, 0.9 + lvl * 0.15);
+            const runes = 1;
+            return metaApplyToParams(game, 'rune_snare', { cooldown, radius, duration, armTime, dmg, stun, runes });
+        },
+        desc: (lvl) => {
+            const rawCd = Math.max(2.8, 7.5 - 0.55 * lvl);
+            const radius = 120 + lvl * 14;
+            const dmg = 18 + lvl * 10;
+            const stun = Math.min(1.7, 0.9 + lvl * 0.15);
+            return `布置符文陷阱：触发半径 ${radius}，伤害 ${dmg}，眩晕≈${stun.toFixed(1)}s。CD≈${rawCd.toFixed(1)}s`;
+        },
+        onActivate: (game, lvl, params) => {
+            if (game && game.sfx) game.sfx.play('skill');
+            const p = params || SKILLS['rune_snare'].getParams(game, lvl, game.player);
+            const tier = (p._meta && p._meta.tier) ? p._meta.tier : 0;
+            const runes = Math.max(1, Math.floor(p.runes || 1));
+            for (let i = 0; i < runes; i++) {
+                const ang = (runes === 1 ? Math.random() * Math.PI * 2 : (i / runes) * Math.PI * 2);
+                const rr = (runes === 1 ? 0 : (70 + Math.random() * 30));
+                const x = game.player.x + Math.cos(ang) * rr;
+                const y = game.player.y + Math.sin(ang) * rr;
+                game.createAoE(x, y, p.radius, p.duration, 0, 'rgba(179, 136, 255, 0.18)', 'enemies', {
+                    tickInterval: 0.10,
+                    onTickEnemy: (g, e, z) => {
+                        if ((z.t || 0) < (p.armTime || 0)) return;
+                        z._hit = z._hit || new Set();
+                        if (z._hit.has(e)) return;
+                        z._hit.add(e);
+                        metaProcOnEnemyHit(e, p._meta);
+                        e.takeDamage(p.dmg);
+                        e.stunned = Math.max(e.stunned || 0, p.stun || 0.8);
+                        if (tier >= 2 && typeof e.applyDot === 'function') e.applyDot(0, 1.0, 0.22);
+                        // After first trigger, shorten lifetime (readable single-trigger trap)
+                        z.d = Math.min(z.d || 999, (z.t || 0) + 0.22);
+                    }
+                });
+            }
+        }
+    },
+
+    'flash_powder': {
+        id: 'flash_powder',
+        name: '闪光粉尘',
+        type: 'active',
+        arch: 'insight',
+        sub: 'control',
+        unlockStage: 3,
+        maxLevel: 5,
+        unlockCost: 16,
+        unlockDesc: '启迪·控制：瞬间致盲/扰乱附近敌人，给玩家一个“紧急按钮”。（用短眩晕+减速表达）',
+        cooldown: 9,
+        getParams: (game, lvl, caster) => {
+            const cdr = Math.max(0, Math.min(0.6, (caster && caster.cdr) || 0));
+            const cdMul = (caster && caster.skillCdMul) ? caster.skillCdMul : 1;
+            const rawCd = Math.max(3.6, 9.4 - 0.7 * lvl);
+            const cooldown = Math.max(2.0, rawCd * (1 - cdr) * cdMul);
+            const radius = 150 + lvl * 18;
+            const blind = Math.min(1.6, 0.7 + lvl * 0.18);
+            const skillMul = (caster && caster.skillDmgMul) ? caster.skillDmgMul : 1;
+            const dmg = (12 + lvl * 8) * skillMul;
+            const clouds = 1;
+            return metaApplyToParams(game, 'flash_powder', { cooldown, radius, blind, dmg, clouds });
+        },
+        desc: (lvl) => {
+            const rawCd = Math.max(3.6, 9.4 - 0.7 * lvl);
+            const radius = 150 + lvl * 18;
+            const blind = Math.min(1.6, 0.7 + lvl * 0.18);
+            const dmg = 12 + lvl * 8;
+            return `释放闪光粉尘：范围 ${radius}，伤害 ${dmg}，控制≈${blind.toFixed(1)}s。CD≈${rawCd.toFixed(1)}s`;
+        },
+        onActivate: (game, lvl, params) => {
+            if (game && game.sfx) game.sfx.play('skill');
+            const p = params || SKILLS['flash_powder'].getParams(game, lvl, game.player);
+            const tier = (p._meta && p._meta.tier) ? p._meta.tier : 0;
+            const clouds = Math.max(1, Math.floor(p.clouds || 1));
+            for (let i = 0; i < clouds; i++) {
+                const ang = (clouds === 1 ? 0 : (i / clouds) * Math.PI * 2);
+                const rr = (clouds === 1 ? 0 : 70);
+                const x = game.player.x + Math.cos(ang) * rr;
+                const y = game.player.y + Math.sin(ang) * rr;
+                game.createAoE(x, y, p.radius, 0.32, 0, 'rgba(129, 212, 250, 0.16)', 'enemies', {
+                    tickInterval: 0.08,
+                    onTickEnemy: (g, e) => {
+                        metaProcOnEnemyHit(e, p._meta);
+                        e.takeDamage(p.dmg);
+                        e.stunned = Math.max(e.stunned || 0, Math.max(0.25, (p.blind || 0) * 0.6));
+                        if (typeof e.applyDot === 'function') e.applyDot(0, p.blind || 0, (tier >= 2 ? 0.26 : 0.18));
+                    }
+                });
+            }
+        }
+    },
+
+    'time_warp': {
+        id: 'time_warp',
+        name: '时流回响',
+        type: 'active',
+        arch: 'insight',
+        sub: 'cd',
+        unlockStage: 4,
+        maxLevel: 5,
+        unlockCost: 18,
+        unlockDesc: '启迪·冷却：加速自身技能冷却的“节奏按钮”。对强力主动更偏辅助而非直接伤害。',
+        cooldown: 12,
+        getParams: (game, lvl, caster) => {
+            const cdr = Math.max(0, Math.min(0.6, (caster && caster.cdr) || 0));
+            const cdMul = (caster && caster.skillCdMul) ? caster.skillCdMul : 1;
+            const rawCd = Math.max(5.5, 12.5 - 0.85 * lvl);
+            const cooldown = Math.max(2.8, rawCd * (1 - cdr) * cdMul);
+            const haste = Math.min(0.6, 0.35 + lvl * 0.05); // add this fraction of each skill's cooldown
+            const pulses = 1;
+            return metaApplyToParams(game, 'time_warp', { cooldown, haste, pulses });
+        },
+        desc: (lvl) => {
+            const rawCd = Math.max(5.5, 12.5 - 0.85 * lvl);
+            const haste = Math.min(0.6, 0.35 + lvl * 0.05);
+            return `回响时流：为所有主动技能增加进度（约 +${Math.round(haste * 100)}% CD）。CD≈${rawCd.toFixed(1)}s`;
+        },
+        onActivate: (game, lvl, params) => {
+            if (game && game.sfx) game.sfx.play('skill');
+            const p = params || SKILLS['time_warp'].getParams(game, lvl, game.player);
+            const pl = game.player;
+            if (!pl) return;
+            const pulses = Math.max(1, Math.floor(p.pulses || 1));
+            for (let k = 0; k < pulses; k++) {
+                Object.keys(pl.skills || {}).forEach(sid => {
+                    const def = SKILLS[sid];
+                    if (!def || def.type !== 'active') return;
+                    const inRunLv = pl.skills[sid] || 1;
+                    const sp = def.getParams ? def.getParams(game, inRunLv, pl) : { cooldown: def.cooldown };
+                    const cd = (sp && sp.cooldown !== undefined) ? sp.cooldown : (def.cooldown || 0);
+                    if (!(cd > 0)) return;
+                    if (!pl.skillTimers) pl.skillTimers = {};
+                    const t = Math.max(0, pl.skillTimers[sid] || 0);
+                    const bump = cd * Math.max(0, Math.min(0.9, p.haste || 0));
+                    pl.skillTimers[sid] = Math.min(cd - 0.01, t + bump);
+                });
+            }
+            // small control ripple for feedback
+            game.createAoE(pl.x, pl.y, 180, 0.25, 0, 'rgba(129, 212, 250, 0.18)', 'enemies', {
+                tickInterval: 0.06,
+                onTickEnemy: (g, e) => { if (typeof e.applyDot === 'function') e.applyDot(0, 0.9, 0.18); }
+            });
+        }
+    },
+
+    'thorn_mail': {
+        id: 'thorn_mail',
+        name: '荆棘护甲',
+        type: 'passive',
+        arch: 'stone',
+        sub: 'thorns',
+        unlockStage: 2,
+        maxLevel: 5,
+        unlockCost: 12,
+        unlockDesc: '磐石·反伤：受到伤害时，触发一次荆棘震波（有冷却）。适合“敢贴脸”的构筑。',
+        desc: (lvl) => {
+            const dmg = 10 + lvl * 8;
+            const radius = 140 + lvl * 12;
+            const cd = Math.max(1.8, 3.0 - 0.2 * lvl);
+            return `受伤触发：半径 ${radius}，伤害 ${dmg}，冷却≈${cd.toFixed(1)}s`;
+        },
+        apply: (p, lvl) => {
+            p.thorns = {
+                dmg: 10 + lvl * 8,
+                radius: 140 + lvl * 12,
+                cooldown: Math.max(1.8, 3.0 - 0.2 * lvl)
+            };
+        }
     }
 };
 
@@ -1370,6 +1773,11 @@ const SKILL_SIGILS = {
     poison_nova: 'toxin',
     mushroom_trap: 'mushroom',
     frost_nova: 'frost',
+    ember_burst: 'meteor',
+    fortress_stance: 'shield',
+    rune_snare: 'arcane',
+    flash_powder: 'arcane',
+    time_warp: 'arcane',
     // Passive
     sharpness: 'sword',
     quick_draw: 'dart',
@@ -1378,6 +1786,7 @@ const SKILL_SIGILS = {
     split_shot: 'dart',
     toxic_blades: 'toxin',
     adrenaline: 'blade',
+    thorn_mail: 'shield',
     vitality: 'heart',
     health_boost: 'heart',
     regen: 'heart',
@@ -1426,8 +1835,33 @@ const SKILL_ARCH_UI = {
     reach: 'insight',
     arcane_amp: 'insight',
 };
-const getSkillArchUI = (id, def) => (SKILL_ARCH_UI && id && SKILL_ARCH_UI[id]) ? SKILL_ARCH_UI[id] : ((def && def.type === 'active') ? 'swift' : 'insight');
+const getSkillArchUI = (id, def) => {
+    // Prefer explicit classification on the skill definition.
+    const a = def && def.arch;
+    if (a === 'swift' || a === 'stone' || a === 'insight') return a;
+    return (SKILL_ARCH_UI && id && SKILL_ARCH_UI[id]) ? SKILL_ARCH_UI[id] : ((def && def.type === 'active') ? 'swift' : 'insight');
+};
 const archLabelUI = (a) => ({ swift: '迅猛', stone: '磐石', insight: '启迪' }[a] || '迅猛');
+
+// Skill sub-category (fine-grained)
+// swift: physical | fire | ice | poison | lightning
+// stone: heal | shield | thorns | fortify
+// insight: cd | amp | control | trap | utility
+const SKILL_SUB_LABEL = {
+    swift: { physical: '物理', fire: '火', ice: '冰', poison: '毒', lightning: '雷' },
+    stone: { heal: '回血', shield: '护盾', thorns: '反伤', fortify: '减伤' },
+    insight: { cd: '冷却', amp: '增幅', control: '控制', trap: '陷阱', utility: '功能' },
+};
+const getSkillSubId = (id, def) => {
+    const s = def && def.sub;
+    return (typeof s === 'string' && s) ? s : '';
+};
+const getSkillSubLabel = (id, def) => {
+    const arch = getSkillArchUI(id, def);
+    const sid = getSkillSubId(id, def);
+    const map = (arch && SKILL_SUB_LABEL[arch]) ? SKILL_SUB_LABEL[arch] : null;
+    return (map && sid && map[sid]) ? map[sid] : '';
+};
 
 const ITEMS = [
     { id: 'iron_sword', name: '斩铁剑', desc: '攻击力 +20, 攻速 +5%', isHeirloom: false, stats: { damage: 20, cdr: 0.05 } },
@@ -1760,44 +2194,16 @@ class SaveManager {
             const stUI = this._skillUI;
 
             const getArchetype = (id, def) => {
-                // 明确映射优先（可读性强）
-                const map = {
-                    // Active => 巫术
-                    poison_nova: 'sorcery',
-                    blinding_dart: 'sorcery',
-                    mushroom_trap: 'sorcery',
-                    chain_lightning: 'sorcery',
-                    frost_nova: 'sorcery',
-                    blade_storm: 'sorcery',
-                    healing_totem: 'sorcery',
-                    meteor_strike: 'sorcery',
+                // Prefer explicit arch field (swift/stone/insight), fallback to UI arch.
+                const a = (def && def.arch) ? String(def.arch) : '';
+                if (a === 'swift' || a === 'stone' || a === 'insight') return a;
+                if (typeof getSkillArchUI === 'function') {
+                    const ui = getSkillArchUI(id, def);
+                    if (ui === 'swift' || ui === 'stone' || ui === 'insight') return ui;
+                }
 
-                    // Offensive / tempo
-                    sharpness: 'swift',
-                    quick_draw: 'swift',
-                    haste: 'swift',
-                    multishot: 'swift',
-                    split_shot: 'swift',
-                    toxic_blades: 'swift',
-                    adrenaline: 'swift',
-
-                    // Defense
-                    vitality: 'stone',
-                    health_boost: 'stone',
-                    regen: 'stone',
-                    iron_skin: 'stone',
-
-                    // Utility / economy / control
-                    swiftness: 'insight',
-                    wisdom: 'insight',
-                    meditation: 'insight',
-                    reach: 'insight',
-                    arcane_amp: 'insight',
-                };
-                if (map[id]) return map[id];
-
-                // 兜底：按 type + 描述关键词粗分
-                if (def && def.type === 'active') return 'sorcery';
+                // 兜底：按 type + 描述关键词粗分（不再使用“巫术”分类）
+                if (def && def.type === 'active') return 'swift';
                 const text = ((def && def.name) ? def.name : '') + ' ' + ((def && def.unlockDesc) ? def.unlockDesc : '');
                 if (/经验|拾取|冷却|技能|奥术|掌控|冥想|智慧/.test(text)) return 'insight';
                 if (/生命|减伤|再生|铁皮|强壮|体魄/.test(text)) return 'stone';
@@ -1806,7 +2212,6 @@ class SaveManager {
 
             const archetypeLabel = (a) => ({
                 all: '全部',
-                sorcery: '巫术',
                 swift: '迅猛',
                 stone: '磐石',
                 insight: '启迪',
@@ -1835,7 +2240,7 @@ class SaveManager {
 
             // Render tabs (with counts)
             if (tabsEl) {
-                const tabs = ['all', 'sorcery', 'swift', 'stone', 'insight', 'active', 'passive'];
+                const tabs = ['all', 'swift', 'stone', 'insight', 'active', 'passive'];
                 const counts = Object.create(null);
                 tabs.forEach(t => counts[t] = 0);
                 allSkills.forEach(s => {
@@ -1900,7 +2305,7 @@ class SaveManager {
                 if (!stUI.showLocked && !s.unlocked) return false;
                 if (stUI.tab === 'active' && s.type !== 'active') return false;
                 if (stUI.tab === 'passive' && s.type !== 'passive') return false;
-                if (stUI.tab === 'sorcery' || stUI.tab === 'swift' || stUI.tab === 'stone' || stUI.tab === 'insight') {
+                if (stUI.tab === 'swift' || stUI.tab === 'stone' || stUI.tab === 'insight') {
                     if (s.arch !== stUI.tab) return false;
                 }
                 if (q) {
@@ -1912,11 +2317,9 @@ class SaveManager {
 
             // Group by archetype + type (collapsible)
             const groupOrder = [
-                ['sorcery', 'active'],
                 ['swift', 'passive'],
                 ['stone', 'passive'],
                 ['insight', 'passive'],
-                ['sorcery', 'passive'],
                 ['swift', 'active'],
                 ['stone', 'active'],
                 ['insight', 'active'],
@@ -1931,24 +2334,28 @@ class SaveManager {
             const renderCard = (s) => {
                 const def = s.def;
                 const tag = s.type === 'active' ? '主动' : '被动';
+                const sub = getSkillSubLabel(s.id, def);
                 const curLv = s.metaLv;
                 const unlocked = s.unlocked;
                 const isMax = curLv >= META_SKILL_MAX_LEVEL;
-                const cost = isMax ? { gold: 0, gems: 0 } : metaGetLevelUpCost(s.id, curLv);
-                const costGold = Math.max(0, Math.floor(cost.gold || 0));
-                const costGems = Math.max(0, Math.floor(cost.gems || 0));
-                const costText = (costGems > 0) ? `金币${costGold} + 宝石${costGems}` : `金币${costGold}`;
+                const cost = isMax ? 0 : metaGetLevelUpCost(s.id, curLv);
+                const costText = `碎片${Math.max(0, Math.floor(cost))}`;
                 const nextDesc = metaDescribeNextLevel(s.id, curLv);
+                const needStage = metaGetSkillUnlockStage(this, s.id);
+                const canUnlockNow = metaCanUnlockSkillNow(this, s.id);
+                const stageHint = (!unlocked && !canUnlockNow) ? `需通关第 ${needStage} 关` : '';
+                const btnDisabled = isMax || (!unlocked && !canUnlockNow);
 
                 return `
                     <div class="skill-upgrade-card ${unlocked ? '' : 'locked'}" data-sid="${safe(s.id)}">
                         <div class="skill-upgrade-top">
-                            <div class="skill-upgrade-name">${skillSigilSvg(s.id, 'inline')} ${safe(def.name)} <span class="skill-upgrade-tag">(${safe(tag)})</span></div>
+                            <div class="skill-upgrade-name">${skillSigilSvg(s.id, 'inline')} ${safe(def.name)} <span class="skill-upgrade-tag">(${safe(tag)}${sub ? '·' + safe(sub) : ''})</span></div>
                             <div class="skill-upgrade-note">${unlocked ? `Lv.${curLv}/${META_SKILL_MAX_LEVEL}` : `未解锁 (Lv.${curLv}/${META_SKILL_MAX_LEVEL})`}</div>
                         </div>
                         <div class="skill-upgrade-desc">${safe(nextDesc)}</div>
+                        ${stageHint ? `<div class="skill-upgrade-desc" style="opacity:0.75;">${safe(stageHint)}</div>` : ''}
                         <div class="skill-upgrade-actions">
-                            <button class="small-btn" data-up="1" ${isMax ? 'disabled' : ''}>${isMax ? '已满级' : (unlocked ? `升级到Lv.${curLv + 1}（${costText}）` : `解锁（${costText}）`)}</button>
+                            <button class="small-btn" data-up="1" ${btnDisabled ? 'disabled' : ''}>${isMax ? '已满级' : (unlocked ? `升级到Lv.${curLv + 1}（${costText}）` : (canUnlockNow ? `解锁（${costText}）` : `未达成关卡`))}</button>
                         </div>
                     </div>
                 `;
@@ -2039,6 +2446,8 @@ class SaveManager {
 
         const cur = Math.max(0, Math.floor(this.data.skillLevels[skillId] || 0));
         if (cur >= META_SKILL_MAX_LEVEL) return false;
+        // Stage-gated unlock (Lv.1): strong skills should only be unlockable after reaching later stages.
+        if (cur <= 0 && !metaCanUnlockSkillNow(this, skillId)) return false;
         const cost = metaGetLevelUpCost(skillId, cur);
         if ((this.data.skillShards || 0) < cost) return false;
 
@@ -3256,6 +3665,10 @@ class Player {
         this.skillCdMul = 1;
         this.poisonOnHit = null;
         this.killHaste = null;
+        // Reactive effects
+        this.thorns = null;      // { dmg, radius, cooldown }
+        this.thornsCd = 0;       // remaining cooldown seconds
+        this.thorns = null;
         
         // Level-based attack interval (gentler early scaling, diminishing returns)
         // lvl 1 => 1.00, lvl 10 => ~0.93, lvl 25 => ~0.83, lvl 50 => ~0.71 (then cap)
@@ -3311,6 +3724,7 @@ class Player {
             this.tempDRTimer -= dt;
             if (this.tempDRTimer <= 0) { this.tempDRTimer = 0; this.tempDR = 0; }
         }
+        if (this.thornsCd > 0) this.thornsCd = Math.max(0, this.thornsCd - dt);
 
         const moveMul = (this.statusSlowTimer > 0 ? this.statusSlowMul : 1) * (this.statusBlindTimer > 0 ? 0.85 : 1);
         const effectiveSpeed = this.speed * moveMul;
@@ -3750,6 +4164,20 @@ class Player {
         if (!(dmg > 0)) return;
         this.hp -= dmg;
         this.game.triggerDamageEffect();
+        // Reactive thorns: a small, readable "payback" effect (stone/thorns).
+        if (this.thorns && this.thornsCd <= 0.001 && this.game && this.game.state === 'PLAYING') {
+            try {
+                const tdmg = Math.max(0, this.thorns.dmg || 0);
+                const tr = Math.max(40, this.thorns.radius || 120);
+                if (tdmg > 0) {
+                    this.thornsCd = Math.max(0.25, this.thorns.cooldown || 2.8);
+                    this.game.createAoE(this.x, this.y, tr, 0.18, 0, 'rgba(225, 182, 90, 0.22)', 'enemies', {
+                        tickInterval: 0.06,
+                        onTickEnemy: (g, e) => { e.takeDamage(tdmg); }
+                    });
+                }
+            } catch (_) { }
+        }
         if (this.hp <= 0) this.game.gameOver();
     }
     
@@ -3894,6 +4322,7 @@ class Game {
         const safeHtml = (s) => String(s || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
         const getSkillTypeLabel = (def) => (def && def.type === 'active') ? '主动' : '被动';
+        const getSubLabel = (id, def) => (typeof getSkillSubLabel === 'function') ? (getSkillSubLabel(id, def) || '') : '';
 
         // Panel confirm (in-panel style)
         const openPanelConfirm = ({ title, desc, confirmText = '确认', cancelText = '取消', danger = false } = {}) => {
@@ -3932,6 +4361,8 @@ class Game {
         const panelUI = this._panelSkillUI;
 
         const getArchetype = (id, def) => {
+            const a = (def && def.arch) ? String(def.arch) : '';
+            if (a === 'swift' || a === 'stone' || a === 'insight') return a;
             const map = {
                 // Active re-class (no "巫术"): Swift / Stone / Insight
                 // Swift: aggressive / burst / tempo
@@ -4052,10 +4483,11 @@ class Game {
                 const cls = `panel-skill-card ${safeHtml(s.arch)} ${unlocked ? '' : 'locked'}`;
                 const meta = unlocked ? `Lv.${lv}/${META_SKILL_MAX_LEVEL}` : `未解锁 · Lv.${lv}/${META_SKILL_MAX_LEVEL}`;
                 const type = getSkillTypeLabel(s.def);
+                const sub = getSubLabel(s.id, s.def);
                 return `
                     <button class="${cls}" data-nav="skillDetail" data-skill="${safeHtml(s.id)}">
                         <div class="panel-skill-top">
-                    <div class="panel-skill-name">${skillSigilSvg(s.id, 'inline')} ${safeHtml(s.def.name)} <span class="panel-tag">${safeHtml(type)}</span> <span class="panel-tag ${safeHtml(s.arch)}">${safeHtml(archLabel(s.arch))}</span></div>
+                    <div class="panel-skill-name">${skillSigilSvg(s.id, 'inline')} ${safeHtml(s.def.name)} <span class="panel-tag">${safeHtml(type)}</span> <span class="panel-tag ${safeHtml(s.arch)}">${safeHtml(archLabel(s.arch))}</span>${sub ? ` <span class="panel-tag">${safeHtml(sub)}</span>` : ''}</div>
                             <div class="panel-skill-meta">${safeHtml(meta)}</div>
                         </div>
                         <div class="panel-skill-desc">${safeHtml(next)}</div>
@@ -4087,6 +4519,8 @@ class Game {
             const canUp = !isMax && shards >= cost;
             const nextDesc = metaDescribeNextLevel(sid, lv);
             const spent = metaGetSkillSpentShards(sm, sid);
+            const needStage = (typeof metaGetSkillUnlockStage === 'function') ? metaGetSkillUnlockStage(sm, sid) : 1;
+            const canUnlockNow = (typeof metaCanUnlockSkillNow === 'function') ? metaCanUnlockSkillNow(sm, sid) : true;
 
             // Derive "current stats" for active skills using getParams() + meta apply.
             let statsLines = [];
@@ -4251,6 +4685,10 @@ class Game {
                             ['totems', '图腾'],
                             ['meteors', '陨石'],
                             ['novas', '毒圈'],
+                            ['bursts', '爆裂'],
+                            ['wards', '壁垒'],
+                            ['runes', '符文'],
+                            ['clouds', '粉尘'],
                         ];
                         qtyPairs.forEach(([k, n]) => {
                             if (p[k] !== undefined) statsLines.push(`${n}：${fmt(p[k])}`);
@@ -4272,7 +4710,7 @@ class Game {
                         nextA2BLines.push(`${label}：${fa}${unit} → ${fb}${unit}`);
                     };
                     const pickQty = (obj) => {
-                        const keys = ['shots', 'count', 'jumps', 'blades', 'pulses', 'totems', 'meteors', 'novas'];
+                        const keys = ['shots', 'count', 'jumps', 'blades', 'pulses', 'totems', 'meteors', 'novas', 'bursts', 'wards', 'runes', 'clouds'];
                         for (const k of keys) if (obj[k] !== undefined) return { k, v: obj[k] };
                         return null;
                     };
@@ -4292,7 +4730,7 @@ class Game {
                     const qc = pickQty(pCur);
                     const qn = pickQty(pNxt);
                     if (qc || qn) {
-                        const labelMap = { shots: '数量', count: '数量', jumps: '跳跃次数', blades: '刀刃数量', pulses: '脉冲次数', totems: '图腾数量', meteors: '陨石数量', novas: '毒圈数量' };
+                        const labelMap = { shots: '数量', count: '数量', jumps: '跳跃次数', blades: '刀刃数量', pulses: '脉冲次数', totems: '图腾数量', meteors: '陨石数量', novas: '毒圈数量', bursts: '爆裂数量', wards: '壁垒层数', runes: '符文数量', clouds: '粉尘团数' };
                         const key = (qc && qc.k) || (qn && qn.k);
                         mkA2B(labelMap[key] || '数量', qc ? qc.v : undefined, qn ? qn.v : undefined, '');
                     }
@@ -4459,9 +4897,10 @@ class Game {
             }
 
             const arch = getArchetype(sid, def);
+            const sub = getSubLabel(sid, def);
             panelSkillDetailEl.innerHTML = `
                 <div class="panel-skill-hero ${safeHtml(arch)}">
-                    <div class="panel-skill-hero-title">${skillSigilSvg(sid, 'inline')} ${safeHtml(def.name)} <span class="panel-tag">${safeHtml(getSkillTypeLabel(def))}</span> <span class="panel-tag ${safeHtml(arch)}">${safeHtml(archLabel(arch))}</span></div>
+                    <div class="panel-skill-hero-title">${skillSigilSvg(sid, 'inline')} ${safeHtml(def.name)} <span class="panel-tag">${safeHtml(getSkillTypeLabel(def))}</span> <span class="panel-tag ${safeHtml(arch)}">${safeHtml(archLabel(arch))}</span>${sub ? ` <span class="panel-tag">${safeHtml(sub)}</span>` : ''}</div>
                     <div class="panel-skill-corner"><span>💠</span><span>${safeHtml(shards)}</span></div>
                     <div class="panel-skill-hero-sub">${safeHtml(unlocked ? `Lv.${lv}/${META_SKILL_MAX_LEVEL}` : `未解锁 · Lv.${lv}/${META_SKILL_MAX_LEVEL}`)} · 已消耗碎片 ${safeHtml(spent)}</div>
                 </div>
@@ -4469,6 +4908,7 @@ class Game {
                 <div class="panel-skill-block">
                     <div class="panel-skill-block-title">技能说明</div>
                     <div class="panel-skill-block-text">${safeHtml(def.unlockDesc || '')}</div>
+                    ${(!unlocked && !canUnlockNow) ? `<div class="panel-skill-block-text" style="opacity:0.75;">需通关第 ${safeHtml(needStage)} 关后才可解锁</div>` : ''}
                 </div>
 
                 <div class="panel-skill-block">
@@ -4481,7 +4921,7 @@ class Game {
                     <div class="panel-skill-block-title">下一次提升</div>
                     <div class="panel-skill-block-text">${safeHtml((nextA2BLines && nextA2BLines.length > 0) ? nextA2BLines.join('\n') : nextDesc)}</div>
                     <div class="panel-skill-actions">
-                        <button id="panel-skill-upgrade-btn" class="panel-primary-btn" ${canUp ? '' : 'disabled'}>
+                        <button id="panel-skill-upgrade-btn" class="panel-primary-btn" ${(canUp && (unlocked || canUnlockNow)) ? '' : 'disabled'}>
                             ${isMax ? '已满级' : (unlocked ? `升级（碎片 ${cost}）` : `解锁（碎片 ${cost}）`)}
                         </button>
                         <button id="panel-skill-reset-btn" class="panel-secondary-btn" ${(spent > 0) ? '' : 'disabled'}>重置（返还碎片）</button>
@@ -7603,6 +8043,7 @@ class Game {
             const d = document.createElement('div');
             const arch = getSkillArchUI(id, def);
             const typeLabel = (def && def.type === 'active') ? '主动' : '被动';
+            const subLabel = (typeof getSkillSubLabel === 'function') ? (getSkillSubLabel(id, def) || '') : '';
             d.className = `upgrade-card ${arch}`;
             d.innerHTML = `
                 <div class="upgrade-left">${skillSigilSvg(id)}</div>
@@ -7613,6 +8054,7 @@ class Game {
                             <div class="upgrade-inline-tags">
                                 <span class="upgrade-tag ${safe(arch)}">${safe(archLabelUI(arch))}</span>
                                 <span class="upgrade-tag">${safe(typeLabel)}</span>
+                                ${subLabel ? `<span class="upgrade-tag">${safe(subLabel)}</span>` : ''}
                             </div>
                         </div>
                         <div class="upgrade-meta">Lv.${safe(lvl)}</div>
