@@ -2822,6 +2822,14 @@ class Enemy {
         this.leap = config.leap || null;         // { cooldown, duration, speedMul }
         this.blinkCd = (config.blinkCd !== undefined ? config.blinkCd : (config.blink && config.blink.cooldown ? config.blink.cooldown : null));
         this._specialTimers = { aura: 0, trail: 0, blink: 0, leapCd: 0, leapActive: 0 };
+
+        // Seek/approach dispersion:
+        // Instead of always moving directly to player position (which stacks enemies),
+        // enemies first move toward a distributed point on a ring around the player.
+        // The ring radius grows with distance, and within attack distance they fall back
+        // to the existing collision melee / ranged attack logic.
+        this._seekAngle = Math.random() * Math.PI * 2;          // stable per-enemy slot around player
+        this._seekRadiusJitter = (Math.random() * 2 - 1);       // [-1, 1] small radius variance
         
         // Spawn logic: spawn outside current viewport around player (world space)
         if (config.spawnAt && typeof config.spawnAt.x === 'number' && typeof config.spawnAt.y === 'number') {
@@ -2933,13 +2941,15 @@ class Enemy {
             return;
         }
 
-        const dx = this.game.player.x - this.x;
-        const dy = this.game.player.y - this.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
+        const px = this.game.player.x;
+        const py = this.game.player.y;
+        const dxP = px - this.x;
+        const dyP = py - this.y;
+        const distP = Math.sqrt(dxP * dxP + dyP * dyP);
 
         // Boss uses dedicated behavior tree; elites use normal AI + special behaviors.
         if (this.type === 'boss') {
-            this.updateBossBehavior(dt, dist, dx, dy);
+            this.updateBossBehavior(dt, distP, dxP, dyP);
             return;
         }
 
@@ -2961,12 +2971,12 @@ class Enemy {
 
         // Special: kamikaze (suicide bomber)
         if (this.behavior === 'kamikaze' && this.explode) {
-            if (dist > 0.0001) {
-                this.x += (dx / dist) * this.speed * dt;
-                this.y += (dy / dist) * this.speed * dt;
+            if (distP > 0.0001) {
+                this.x += (dxP / distP) * this.speed * dt;
+                this.y += (dyP / distP) * this.speed * dt;
             }
             const trigger = Math.max(this.radius + this.game.player.radius + 4, this.explode.triggerDist || 0);
-            if (dist <= trigger || checkCollision(this, this.game.player)) {
+            if (distP <= trigger || checkCollision(this, this.game.player)) {
                 this.markedForDeletion = true;
                 const baseDmg = (this.explode.damage !== undefined ? this.explode.damage : (this.damage * 2));
                 const scaledDmg = baseDmg * (1 + this.level * 0.04);
@@ -3024,18 +3034,35 @@ class Enemy {
         const dotSlowMul = (this.dotSlow > 0 ? (1 - Math.min(0.65, this.dotSlow)) : 1);
 
         if (this.isRanged) {
-            if (dist > this.attackRange * 0.8) {
-                this.x += (dx / dist) * this.speed * speedMulNow * dotSlowMul * dt;
-                this.y += (dy / dist) * this.speed * speedMulNow * dotSlowMul * dt;
-            } else if (dist < this.attackRange * 0.5) {
+            // Phase 1: approach a distributed ring point around player to avoid stacking.
+            // Phase 2: once in comfortable range, keep existing keep-distance behavior + ranged attacks.
+            if (distP > this.attackRange * 0.8) {
+                const pad = 220;
+                const desired = Math.max(40, this.attackRange * 0.72);
+                // Radius increases with distance (but always < distP), so far enemies "index" to a wider ring.
+                let ringR = desired + (distP - desired) * 0.35 + this._seekRadiusJitter * 12;
+                ringR = Math.max(desired * 0.9, Math.min(distP - 1, ringR));
+                let tx = px + Math.cos(this._seekAngle) * ringR;
+                let ty = py + Math.sin(this._seekAngle) * ringR;
+                tx = Math.max(pad, Math.min(this.game.worldWidth - pad, tx));
+                ty = Math.max(pad, Math.min(this.game.worldHeight - pad, ty));
+                const mdx = tx - this.x, mdy = ty - this.y;
+                const md = Math.hypot(mdx, mdy);
+                if (md > 0.0001) {
+                    this.x += (mdx / md) * this.speed * speedMulNow * dotSlowMul * dt;
+                    this.y += (mdy / md) * this.speed * speedMulNow * dotSlowMul * dt;
+                }
+            } else if (distP < this.attackRange * 0.5) {
                 // Back away
-                this.x -= (dx / dist) * this.speed * 0.5 * speedMulNow * dotSlowMul * dt;
-                this.y -= (dy / dist) * this.speed * 0.5 * speedMulNow * dotSlowMul * dt;
+                if (distP > 0.0001) {
+                    this.x -= (dxP / distP) * this.speed * 0.5 * speedMulNow * dotSlowMul * dt;
+                    this.y -= (dyP / distP) * this.speed * 0.5 * speedMulNow * dotSlowMul * dt;
+                }
             }
             
             this.attackTimer += dt;
             const cd = (this.rangedProfile && this.rangedProfile.cooldown) ? this.rangedProfile.cooldown : 2.0;
-            if (this.attackTimer > cd && dist < this.attackRange) {
+            if (this.attackTimer > cd && distP < this.attackRange) {
                 const projColor = (this.rangedProfile && this.rangedProfile.color) ? this.rangedProfile.color : 'orange';
                 const projSpeed = (this.rangedProfile && this.rangedProfile.projSpeed) ? this.rangedProfile.projSpeed : 300;
                 const projRadius = (this.rangedProfile && this.rangedProfile.radius) ? this.rangedProfile.radius : 5;
@@ -3056,9 +3083,26 @@ class Enemy {
             }
         } else {
             // Melee
-            if (dist > 0) {
-                this.x += (dx / dist) * this.speed * speedMulNow * dotSlowMul * dt;
-                this.y += (dy / dist) * this.speed * speedMulNow * dotSlowMul * dt;
+            const engage = this.radius + this.game.player.radius + 6;
+            if (distP > engage) {
+                // Phase 1: move to a distributed ring point (radius grows with distance).
+                const pad = 220;
+                let ringR = engage + (distP - engage) * 0.35 + this._seekRadiusJitter * 10;
+                ringR = Math.max(engage, Math.min(distP - 1, ringR));
+                let tx = px + Math.cos(this._seekAngle) * ringR;
+                let ty = py + Math.sin(this._seekAngle) * ringR;
+                tx = Math.max(pad, Math.min(this.game.worldWidth - pad, tx));
+                ty = Math.max(pad, Math.min(this.game.worldHeight - pad, ty));
+                const mdx = tx - this.x, mdy = ty - this.y;
+                const md = Math.hypot(mdx, mdy);
+                if (md > 0.0001) {
+                    this.x += (mdx / md) * this.speed * speedMulNow * dotSlowMul * dt;
+                    this.y += (mdy / md) * this.speed * speedMulNow * dotSlowMul * dt;
+                }
+            } else if (distP > 0.0001) {
+                // Phase 2: within attack distance -> fall back to collision melee.
+                this.x += (dxP / distP) * this.speed * speedMulNow * dotSlowMul * dt;
+                this.y += (dyP / distP) * this.speed * speedMulNow * dotSlowMul * dt;
             }
             if (checkCollision(this, this.game.player)) {
                 this.game.player.takeDamage(this.damage * dt);
